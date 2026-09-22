@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { refreshStatusBoard } from "@/lib/status/board";
+import { fetchStatusBoard, refreshStatusBoard } from "@/lib/status/board";
 import { CATEGORIES } from "@/lib/status/catalog";
 import { overallHealth } from "@/lib/status/diff";
 import { healthLabel } from "@/lib/status/health";
@@ -42,7 +42,11 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
 
   const boardQuery = useQuery({
     queryKey: ["status-board"],
-    queryFn: () => refreshStatusBoard(),
+    // The cached GET, not the forcing POST. With `refreshStatusBoard` here
+    // every open tab forced its own full vendor sweep every two minutes, so
+    // the 45s server cache never served anyone and load on the vendor APIs
+    // scaled with the number of viewers. Forcing is for the Refresh button.
+    queryFn: () => fetchStatusBoard(),
     initialData: initial,
     refetchInterval: LIVE_REFETCH_MS,
     refetchIntervalInBackground: true,
@@ -85,7 +89,10 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
         if (!cancelled) void queryClient.invalidateQueries({ queryKey: ["status-board"] });
       })
       .finally(() => {
-        if (!cancelled) setRefreshing(false);
+        // Not guarded by `cancelled`: the module-level `didOpenRefresh` means
+        // this effect never runs twice, so a remount before the promise
+        // settled would leave `refreshing` stuck true and the button disabled.
+        setRefreshing(false);
       });
     return () => {
       cancelled = true;
@@ -226,6 +233,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
                     service={service}
                     index={index}
                     emphasized={changedIds.has(service.id)}
+                    mounted={now > 0}
                   />
                 ))}
               </div>

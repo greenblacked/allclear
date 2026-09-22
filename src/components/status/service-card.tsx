@@ -29,12 +29,16 @@ export function ServiceCard({
   service,
   index,
   emphasized = false,
+  mounted = false,
 }: {
   service: ServiceSnapshot;
   index: number;
   emphasized?: boolean;
+  /** False until the client has mounted; see checkedAt below. */
+  mounted?: boolean;
 }) {
   const Icon = CATEGORY_ICON[service.category];
+  const checkedAtLabel = formatTime(service.checkedAt);
   const changelog = service.category === "updates";
   const issueComponents = service.components.filter((component) => component.health !== "operational");
   const shown =
@@ -118,7 +122,12 @@ export function ServiceCard({
       <div className="mt-auto flex items-center justify-between gap-3 pt-4">
         <p className="font-mono text-[11px] tabular-nums text-subtle">
           {service.latencyMs}ms
-          {formatTime(service.checkedAt) ? ` · ${formatTime(service.checkedAt)}` : ""}
+          {/*
+            `checkedAt` is formatted in the viewer's timezone, so the server
+            ("12:04 UTC") and the client ("14:04 GMT+2") disagree and hydration
+            mismatches. Render it only after mount, as LiveBar does.
+          */}
+          {mounted && checkedAtLabel ? ` · ${checkedAtLabel}` : ""}
         </p>
         <a
           href={service.sourceUrl}

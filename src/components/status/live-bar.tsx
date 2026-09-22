@@ -17,10 +17,7 @@ export function LiveBar({
   const age = mounted ? formatAge(now - new Date(checkedAt).getTime()) : "…";
 
   return (
-    <section
-      className="glass rounded-3xl px-4 py-3"
-      aria-live="polite"
-    >
+    <section className="glass rounded-3xl px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm">
           <span
@@ -33,7 +30,12 @@ export function LiveBar({
             <Radio className={cn("size-3.5", !isFetching && "live-dot")} />
           </span>
           <div>
-            <p className="font-medium tracking-[-0.02em]">
+            {/*
+              The live region is scoped to this line alone. On the <section> it
+              also covered the age and the countdown, both of which tick every
+              second, so a screen reader re-announced the whole bar every second.
+            */}
+            <p className="font-medium tracking-[-0.02em]" aria-live="polite">
               {isFetching ? "Checking official sources" : "Live"}
             </p>
             <p className="font-mono text-[11px] tabular-nums text-subtle">Last check {age}</p>
