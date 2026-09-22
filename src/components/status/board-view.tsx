@@ -37,7 +37,8 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
   const [category, setCategory] = useState<"all" | CategoryId>("all");
   const [issuesOnly, setIssuesOnly] = useState(false);
   const [store, setStore] = useState<PulseStore | null>(null);
-  const [refreshing, setRefreshing] = useState(false);\n  const manualRefreshInFlight = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const manualRefreshInFlight = useRef(false);
 
   const boardQuery = useQuery({
     queryKey: ["status-board"],

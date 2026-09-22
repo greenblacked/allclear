@@ -13,10 +13,10 @@
     "target": "ES2022",
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
-    "baseUrl": ".",
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": ["./src/*"]
     },
-    "types": ["node", "vitest/globals"]
+    "types": ["node", "vite/client", "vitest/globals"]
   }
 }

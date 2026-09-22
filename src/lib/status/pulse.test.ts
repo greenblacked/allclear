@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { emptyPulseStore, syncPulse } from "./pulse.ts";
 import type { BoardSnapshot, ServiceSnapshot } from "./types.ts";
