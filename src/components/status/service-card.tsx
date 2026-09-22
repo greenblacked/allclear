@@ -1,4 +1,4 @@
-import { ArrowUpRight, Cloud, Cpu, Gamepad2, Smartphone } from "lucide-react";
+import { ArrowUpRight, Cloud, Cpu, Gamepad2, History, Smartphone } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { healthLabel } from "@/lib/status/health";
 import type { CategoryId, Health, ServiceSnapshot } from "@/lib/status/types";
@@ -9,6 +9,7 @@ const CATEGORY_ICON: Record<CategoryId, typeof Cloud> = {
   gaming: Gamepad2,
   platforms: Smartphone,
   ai: Cpu,
+  updates: History,
 };
 
 function formatTime(iso?: string) {
@@ -24,26 +25,38 @@ function formatTime(iso?: string) {
   }).format(date);
 }
 
-export function ServiceCard({ service, index }: { service: ServiceSnapshot; index: number }) {
+export function ServiceCard({
+  service,
+  index,
+  emphasized = false,
+}: {
+  service: ServiceSnapshot;
+  index: number;
+  emphasized?: boolean;
+}) {
   const Icon = CATEGORY_ICON[service.category];
+  const changelog = service.category === "updates";
   const issueComponents = service.components.filter((component) => component.health !== "operational");
   const shown =
-    issueComponents.length > 0
-      ? issueComponents
-      : service.id === "cs2-europe"
-        ? service.components.slice(0, 6)
+    changelog || service.id === "cs2-europe"
+      ? service.components.slice(0, 6)
+      : issueComponents.length > 0
+        ? issueComponents
         : [];
 
   return (
     <article
-      className="group relative flex flex-col rounded-3xl bg-surface p-4 shadow-[var(--shadow-border)] transition-[box-shadow,transform] duration-[var(--motion-fast)] ease-[var(--ease-smooth-out)] hover:shadow-[var(--shadow-border-hover)] stagger-in"
+      className={cn(
+        "group relative flex flex-col rounded-3xl glass p-4 transition-[box-shadow,transform] duration-[var(--motion-fast)] ease-[var(--ease-smooth-out)] hover:shadow-[var(--shadow-border-hover)] stagger-in",
+        emphasized && (service.health === "outage" ? "service-card-changed is-down" : "service-card-changed"),
+      )}
       style={{ animationDelay: `${Math.min(index, 12) * 40}ms` }}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <span
             className={cn(
-              "grid size-10 place-items-center rounded-2xl bg-surface-2 text-muted",
+              "grid size-10 place-items-center rounded-2xl glass-inset text-muted",
               service.health === "outage" && "text-down",
               service.health === "degraded" && "text-warn",
               service.health === "operational" && "text-ok",
@@ -58,6 +71,7 @@ export function ServiceCard({ service, index }: { service: ServiceSnapshot; inde
             </h3>
             <p className="mt-0.5 font-mono text-[11px] uppercase tracking-[0.14em] text-subtle">
               {service.shortName}
+              {emphasized ? " · changed" : ""}
             </p>
           </div>
         </div>
@@ -68,15 +82,21 @@ export function ServiceCard({ service, index }: { service: ServiceSnapshot; inde
 
       {shown.length > 0 ? (
         <ul className="mt-4 flex flex-col gap-1.5">
-          {shown.slice(0, 6).map((component, index) => (
+          {shown.slice(0, 6).map((component, componentIndex) => (
             <li
-              key={`${component.name}-${index}`}
-              className="flex items-center justify-between gap-3 rounded-xl bg-bg px-3 py-2"
+              key={`${component.name}-${componentIndex}`}
+              className="flex items-center justify-between gap-3 rounded-xl glass-inset px-3 py-2"
             >
               <span className="truncate text-sm text-fg">{component.name}</span>
               <span className="flex shrink-0 items-center gap-2 font-mono text-[11px] tabular-nums text-subtle">
                 {component.detail}
-                <Badge tone={component.health}>{healthLabel(component.health)}</Badge>
+                {changelog ? (
+                  component.health === "maintenance" ? (
+                    <Badge tone="maintenance">New</Badge>
+                  ) : null
+                ) : (
+                  <Badge tone={component.health}>{healthLabel(component.health)}</Badge>
+                )}
               </span>
             </li>
           ))}

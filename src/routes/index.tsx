@@ -4,6 +4,8 @@ import { fetchStatusBoard } from "@/lib/status/board";
 
 export const Route = createFileRoute("/")({
   loader: () => fetchStatusBoard(),
+  staleTime: Infinity,
+  shouldReload: false,
   component: Home,
 });
 

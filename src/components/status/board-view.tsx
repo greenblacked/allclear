@@ -1,14 +1,26 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, RefreshCw, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { LiveBar } from "@/components/status/live-bar";
 import { ServiceCard } from "@/components/status/service-card";
+import { UpdateFeed } from "@/components/status/update-feed";
+import { useNow } from "@/components/status/use-now";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchStatusBoard } from "@/lib/status/board";
+import { refreshStatusBoard } from "@/lib/status/board";
 import { CATEGORIES } from "@/lib/status/catalog";
-import { healthLabel, worseHealth } from "@/lib/status/health";
+import { overallHealth } from "@/lib/status/diff";
+import { healthLabel } from "@/lib/status/health";
+import {
+  emptyPulseStore,
+  loadPulseStore,
+  savePulseStore,
+  syncPulse,
+  type PulseStore,
+} from "@/lib/status/pulse";
+import { formatCountdown, lastPulseAt, LIVE_REFETCH_MS, nextPulseAt } from "@/lib/status/schedule";
 import type { BoardSnapshot, CategoryId, Health } from "@/lib/status/types";
 import { cn } from "@/lib/utils";
 
@@ -17,20 +29,68 @@ const FILTERS: Array<{ id: "all" | CategoryId; label: string }> = [
   ...CATEGORIES,
 ];
 
+let didOpenRefresh = false;
+
 export function BoardView({ initial }: { initial: BoardSnapshot }) {
+  const queryClient = useQueryClient();
+  const now = useNow();
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<"all" | CategoryId>("all");
   const [issuesOnly, setIssuesOnly] = useState(false);
+  const [store, setStore] = useState<PulseStore | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const boardQuery = useQuery({
     queryKey: ["status-board"],
-    queryFn: () => fetchStatusBoard(),
+    queryFn: () => refreshStatusBoard(),
     initialData: initial,
-    refetchInterval: 60_000,
+    refetchInterval: LIVE_REFETCH_MS,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
+    staleTime: LIVE_REFETCH_MS,
   });
 
   const board = boardQuery.data ?? initial;
-  const overall = board.services.reduce((acc, service) => worseHealth(acc, service.health), "operational" as Health);
+  const overall = overallHealth(board);
+  const pulseStore = store ?? emptyPulseStore();
+  const changedIds = new Set(
+    (pulseStore.pulses[0]?.opening ? [] : pulseStore.pulses[0]?.changes ?? []).map(
+      (change) => change.id,
+    ),
+  );
+
+  const remaining = now > 0 ? Math.max(0, nextPulseAt(now) - now) : 0;
+  const slot = now > 0 ? lastPulseAt(now) : null;
+
+  useEffect(() => {
+    if (slot === null) return;
+    const existing = store ?? loadPulseStore();
+    const next = syncPulse(board, slot, existing);
+    if (next !== existing) savePulseStore(next);
+    if (store === null || next !== existing) setStore(next);
+  }, [board, slot, store]);
+
+  useEffect(() => {
+    if (didOpenRefresh) return;
+    didOpenRefresh = true;
+    let cancelled = false;
+    setRefreshing(true);
+    void refreshStatusBoard()
+      .then((next) => {
+        if (!cancelled) queryClient.setQueryData(["status-board"], next);
+      })
+      .catch(() => {
+        if (!cancelled) void queryClient.invalidateQueries({ queryKey: ["status-board"] });
+      })
+      .finally(() => {
+        if (!cancelled) setRefreshing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [queryClient]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -43,47 +103,66 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
     });
   }, [board.services, category, issuesOnly, query]);
 
-  const issueCount = board.counts.degraded + board.counts.outage + board.counts.unknown + board.counts.maintenance;
-  const checked = new Date(board.generatedAt);
+  const issueCount =
+    board.counts.degraded + board.counts.outage + board.counts.unknown + board.counts.maintenance;
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      const next = await refreshStatusBoard();
+      queryClient.setQueryData(["status-board"], next);
+    } catch {
+      await boardQuery.refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  const fetching = boardQuery.isFetching || refreshing;
 
   return (
-    <div className="relative min-h-dvh overflow-x-hidden bg-bg text-fg">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[linear-gradient(180deg,rgba(197,205,216,0.06),transparent)]" />
+    <div className="liquid-stage text-fg">
+      <div className="liquid-content">
       <header className="relative mx-auto flex max-w-6xl flex-col gap-8 px-4 pt-8 pb-4 sm:px-6 sm:pt-12">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-subtle">Centralized status board</p>
+            <p className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.22em] text-subtle">
+              <span className="live-dot inline-block size-1.5 rounded-full bg-ok" aria-hidden />
+              Live status board
+            </p>
             <h1 className="mt-2 font-display text-5xl font-medium tracking-[-0.04em] text-balance sm:text-6xl">
               AllClear
             </h1>
             <p className="mt-3 max-w-xl text-base leading-relaxed text-muted text-pretty">
-              Live health for cloud, games, platforms, and AI — pulled from official status pages, not rumor.
+              Official sources are checked on open, then every two minutes.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
-              onClick={() => boardQuery.refetch()}
-              disabled={boardQuery.isFetching}
-              aria-label="Refresh status"
+              onClick={() => void handleRefresh()}
+              disabled={fetching}
+              aria-label="Refresh status now"
             >
-              <RefreshCw className={cn("size-3.5", boardQuery.isFetching && "animate-spin")} />
+              <RefreshCw className={cn("size-3.5", fetching && "animate-spin")} />
               Refresh
             </Button>
           </div>
         </div>
 
-        <section className="grid gap-3 sm:grid-cols-4">
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <OverallCard overall={overall} issueCount={issueCount} total={board.services.length} />
           <StatCard label="Operational" value={board.counts.operational} tone="operational" />
           <StatCard label="Attention" value={issueCount} tone={issueCount ? "degraded" : "operational"} />
           <StatCard
-            label="Collected"
-            value={`${Math.round(board.durationMs / 100) / 10}s`}
-            detail={checked.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            label="Next update"
+            value={now > 0 ? formatCountdown(remaining) : "—"}
+            detail="Every 2 minutes"
           />
         </section>
+
+        <LiveBar checkedAt={board.generatedAt} isFetching={fetching} now={now} />
 
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <label className="relative block min-w-0 flex-1">
@@ -92,7 +171,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search GCP, CS2 Europe, Claude…"
+              placeholder="Search GCP, CS2 Europe, RouterOS…"
               className="pl-10"
             />
           </label>
@@ -120,37 +199,48 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
 
       <main className="relative mx-auto max-w-6xl px-4 pb-20 sm:px-6">
         {boardQuery.isError ? (
-          <p className="rounded-2xl bg-down/10 px-4 py-3 text-sm text-down">
+          <p className="mb-4 rounded-2xl glass px-4 py-3 text-sm text-down">
             Could not refresh official sources. Showing the last successful snapshot.
           </p>
         ) : null}
 
-        {boardQuery.isFetching && !board.services.length ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <Skeleton key={index} className="h-56" />
-            ))}
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
+          <div>
+            {fetching && !board.services.length ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <Skeleton key={index} className="h-56" />
+                ))}
+              </div>
+            ) : visible.length === 0 ? (
+              <p className="rounded-3xl glass px-5 py-10 text-center text-muted">
+                No services match that filter.
+              </p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {visible.map((service, index) => (
+                  <ServiceCard
+                    key={service.id}
+                    service={service}
+                    index={index}
+                    emphasized={changedIds.has(service.id)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        ) : visible.length === 0 ? (
-          <p className="rounded-3xl bg-surface px-5 py-10 text-center text-muted shadow-[var(--shadow-border)]">
-            No services match that filter.
-          </p>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {visible.map((service, index) => (
-              <ServiceCard key={service.id} service={service} index={index} />
-            ))}
-          </div>
-        )}
+          <UpdateFeed pulses={pulseStore.pulses} />
+        </div>
 
         <footer className="mt-14 flex flex-col gap-2 text-sm text-subtle">
           <p>
-            AllClear reads vendor status feeds only. It is not affiliated with Google, Amazon, Valve, Epic, Spotify,
-            Apple, xAI, OpenAI, or Anthropic.
+            AllClear reads vendor status feeds only. It is not affiliated with Google, Amazon, Valve, Epic,
+            Spotify, Apple, MikroTik, xAI, OpenAI, or Anthropic.
           </p>
-          <p>Snapshots cache for 45 seconds. Auto-refresh every minute.</p>
+          <p>Checked on open, then every two minutes from official vendor feeds.</p>
         </footer>
       </main>
+      </div>
     </div>
   );
 }
@@ -165,7 +255,7 @@ function OverallCard({
   total: number;
 }) {
   return (
-    <div className="rounded-3xl bg-surface p-4 shadow-[var(--shadow-border)] sm:col-span-1">
+    <div className="glass rounded-3xl p-4 sm:col-span-1">
       <div className="flex items-center gap-2 text-subtle">
         <Activity className="size-3.5" />
         <span className="font-mono text-[11px] uppercase tracking-[0.16em]">Board</span>
@@ -195,7 +285,7 @@ function StatCard({
   detail?: string;
 }) {
   return (
-    <div className="rounded-3xl bg-surface p-4 shadow-[var(--shadow-border)]">
+    <div className="glass rounded-3xl p-4">
       <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-subtle">{label}</p>
       <p className="mt-3 font-display text-2xl tabular-nums tracking-[-0.03em]">{value}</p>
       {tone ? (

@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import type { BoardSnapshot, Health, ServiceSnapshot } from "./types";
-
-const CACHE_TTL_MS = 45_000;
+import { CACHE_TTL_MS } from "./schedule.ts";
+import type { BoardSnapshot, Health, ServiceSnapshot } from "./types.ts";
 
 let cache: { expires: number; board: BoardSnapshot } | null = null;
 let inflight: Promise<BoardSnapshot> | null = null;
@@ -21,9 +20,9 @@ function assemble(services: ServiceSnapshot[], durationMs: number): BoardSnapsho
   };
 }
 
-async function collectBoard(): Promise<BoardSnapshot> {
+async function collectBoard(force = false): Promise<BoardSnapshot> {
   const now = Date.now();
-  if (cache && cache.expires > now) return cache.board;
+  if (!force && cache && cache.expires > now) return cache.board;
   if (inflight) return inflight;
 
   inflight = (async () => {
@@ -42,4 +41,8 @@ async function collectBoard(): Promise<BoardSnapshot> {
 
 export const fetchStatusBoard = createServerFn({ method: "GET" }).handler(async () => {
   return collectBoard();
+});
+
+export const refreshStatusBoard = createServerFn({ method: "POST" }).handler(async () => {
+  return collectBoard(true);
 });

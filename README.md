@@ -2,7 +2,7 @@
 
 **Repository:** [github.com/greenblacked/allclear](https://github.com/greenblacked/allclear)
 
-Centralized live status board for the services people actually wait on: **GCP**, **AWS**, **Steam** (including **CS2 Europe**), **Epic Games** (including **Fortnite**), **Spotify**, **Apple**, **Android / Google Play**, **Grok**, **ChatGPT**, and **Claude**.
+Centralized live status board for the services people actually wait on: **GCP**, **AWS**, **Steam** (including **CS2 Europe**), **Epic Games** (including **Fortnite**), **Spotify**, **Apple**, **Android / Google Play**, **Grok**, **ChatGPT**, **Claude**, plus official **MikroTik RouterOS** and **Apple OS** changelogs.
 
 AllClear reads **official vendor status surfaces only**. No rumor, no Downdetector, no API keys.
 
@@ -34,14 +34,18 @@ Status is scattered across a dozen dashboards with different shapes. AllClear no
 | Grok | [status.x.ai](https://status.x.ai/) | RSS `feed.xml` (JSON API is Cloudflare-gated) |
 | ChatGPT | [status.openai.com](https://status.openai.com/) | Statuspage summary |
 | Claude | [status.claude.com](https://status.claude.com/) | Statuspage summary |
+| MikroTik RouterOS | [MikroTik changelogs](https://mikrotik.com/download/changelogs) | Official `NEWEST*` channel files + `CHANGELOG` |
+| Apple OS | [Apple Developer Releases](https://developer.apple.com/news/releases/) | Official releases RSS for iOS, iPadOS, macOS, watchOS, tvOS, visionOS |
 
-Snapshots cache for 45 seconds on the server and auto-refresh every minute in the UI.
+Snapshots cache for 45 seconds on the server. Opening the board always pulls a fresh check. After that, official sources are re-checked every two minutes and a board update is posted on the 2-minute clock.
 
 ## Using the board
 
 - Scan the overall card: **All clear**, **Attention**, or **Outage**
-- Filter by Cloud / Gaming / Platforms / AI
+- Watch the **2-minute countdown** and the board log for posted updates
+- Filter by Cloud / Gaming / Platforms / AI / Updates
 - Toggle **Issues only**
+- Refresh immediately if you need a fresh pull from vendors
 - Open the vendor’s own status page from any card
 
 AllClear is an aggregator. Vendor pages remain the source of truth.
@@ -65,7 +69,7 @@ Commits in this repo follow Conventional Commits and are authored as the GitHub 
 
 ## Disclaimer
 
-Not affiliated with Google, Amazon, Valve, Epic Games, Spotify, Apple, xAI, OpenAI, or Anthropic. Names and marks belong to their owners.
+Not affiliated with Google, Amazon, Valve, Epic Games, Spotify, Apple, MikroTik, xAI, OpenAI, or Anthropic. Names and marks belong to their owners.
 
 ## License
 

@@ -44,18 +44,12 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "Centralized live status board for GCP, AWS, Steam, CS2 Europe, Epic Games, Fortnite, Spotify, Apple, Android, Grok, ChatGPT, and Claude.",
+          "Live status board for GCP, AWS, Steam, CS2 Europe, Epic, Fortnite, Spotify, Apple, Android, Grok, ChatGPT, Claude, MikroTik RouterOS, and Apple OS. Official sources checked on open, then every 2 minutes.",
       },
-      { name: "theme-color", content: "#09090b" },
+      { name: "theme-color", content: "#0c1018" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap",
-      },
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/__grok/manifest.webmanifest" },
       { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },

@@ -10,9 +10,11 @@ export type ServiceId =
   | "android"
   | "grok"
   | "chatgpt"
-  | "claude";
+  | "claude"
+  | "mikrotik"
+  | "apple-os";
 
-export type CategoryId = "cloud" | "gaming" | "platforms" | "ai";
+export type CategoryId = "cloud" | "gaming" | "platforms" | "ai" | "updates";
 
 export type Health = "operational" | "degraded" | "outage" | "maintenance" | "unknown";
 

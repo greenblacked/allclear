@@ -1,4 +1,4 @@
-import type { Health } from "./types";
+import type { Health } from "./types.ts";
 
 const RANK: Record<Health, number> = {
   operational: 0,

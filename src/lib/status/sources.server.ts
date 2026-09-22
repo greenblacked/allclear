@@ -1,4 +1,13 @@
 import { CATALOG_BY_ID } from "./catalog";
+import {
+  formatReleaseAge,
+  formatVersionMap,
+  isFreshRelease,
+  latestAppleOsByFamily,
+  MIKROTIK_CHANNELS,
+  parseMikrotikNewest,
+  summarizeMikrotikChangelog,
+} from "./changelog";
 import { fetchJson, fetchText, SourceError } from "./http";
 import {
   googleImpact,
@@ -173,7 +182,9 @@ function fromStatuspage(
       health: statuspageComponent(component.status),
     }));
 
-  const visible = componentFilter ? components : components.slice(0, 8);
+  const visible = componentFilter
+    ? components
+    : components.slice(0, 8);
 
   let health = componentFilter
     ? visible.reduce((acc, component) => worseHealth(acc, component.health), "operational" as Health)
@@ -256,6 +267,7 @@ function awsHealthFromEvent(event: AwsEvent): Health {
   const text = `${event.summary ?? ""} ${event.event_log?.at(-1)?.message ?? ""}`.toLowerCase();
   const region = (event.region_name ?? "").trim();
   if (text.includes("maintenance")) return "maintenance";
+  // Regional Health items (one AZ / one region) are impact, not a global outage.
   if (region || /region availability/.test(text) || /availability zone/.test(text)) {
     return "degraded";
   }
@@ -311,7 +323,9 @@ async function collectSteam(): Promise<ServiceSnapshot> {
   try {
     const [info, store] = await Promise.all([
       timed(() => fetchJson<{ servertime?: number }>("https://api.steampowered.com/ISteamWebAPIUtil/GetServerInfo/v1/")),
-      timed(() => fetchJson<{ featured_win?: unknown[] }>("https://store.steampowered.com/api/featured/")),
+      timed(() =>
+        fetchJson<{ featured_win?: unknown[] }>("https://store.steampowered.com/api/featured/"),
+      ),
     ]);
     const ms = Math.max(info.ms, store.ms);
     const apiOk = typeof info.value.servertime === "number";
@@ -603,6 +617,111 @@ async function collectClaude(): Promise<ServiceSnapshot> {
   }
 }
 
+async function collectMikrotik(): Promise<ServiceSnapshot> {
+  const started = Date.now();
+  try {
+    const { value, ms } = await timed(async () => {
+      const channels = (
+        await Promise.all(
+          MIKROTIK_CHANNELS.map(async (channel) => {
+            try {
+              const { body } = await fetchText(`https://upgrade.mikrotik.com/routeros/${channel.file}`);
+              const parsed = parseMikrotikNewest(body);
+              if (!parsed) return null;
+              return { ...channel, ...parsed };
+            } catch {
+              return null;
+            }
+          }),
+        )
+      ).filter((channel): channel is NonNullable<typeof channel> => Boolean(channel));
+      if (!channels.length) throw new SourceError("MikroTik version channels did not respond.");
+      const stable = channels.find((channel) => channel.file === "NEWESTa7.stable");
+      const newest = channels.reduce((current, channel) => {
+        const currentTime = Date.parse(current.releasedAt ?? "") || 0;
+        const nextTime = Date.parse(channel.releasedAt ?? "") || 0;
+        return nextTime > currentTime ? channel : current;
+      }, channels[0]);
+      let notes = "";
+      const notesVersion = newest?.version ?? stable?.version;
+      if (notesVersion) {
+        try {
+          const changelog = await fetchText(`https://download.mikrotik.com/routeros/${notesVersion}/CHANGELOG`);
+          notes = summarizeMikrotikChangelog(changelog.body);
+        } catch {
+          notes = "";
+        }
+      }
+      return { channels, notes, stable, newest };
+    });
+
+    const components: ComponentHealth[] = value.channels.map((channel) => ({
+      name: channel.name,
+      health: isFreshRelease(channel.releasedAt) ? "maintenance" : "operational",
+      detail: [channel.version, formatReleaseAge(channel.releasedAt)].filter(Boolean).join(" · "),
+    }));
+
+    const latest = value.stable?.version ?? value.newest?.version ?? value.channels[0]?.version ?? "";
+    const latestDate = formatReleaseAge(value.newest?.releasedAt ?? value.stable?.releasedAt);
+    const summary =
+      value.notes ||
+      (latest ? `Latest RouterOS ${latest}${latestDate ? ` · ${latestDate}` : ""}` : "RouterOS channels loaded.");
+
+    return {
+      ...base("mikrotik", new Date().toISOString(), ms),
+      health: "operational",
+      summary,
+      components,
+      incidents: [],
+      meta: {
+        latest,
+        versions: formatVersionMap(value.channels.map((channel) => ({ name: channel.name, version: channel.version }))),
+      },
+    };
+  } catch (error) {
+    return failed("mikrotik", started, error);
+  }
+}
+
+async function collectAppleOs(): Promise<ServiceSnapshot> {
+  const started = Date.now();
+  try {
+    const { value, ms } = await timed(() => fetchText("https://developer.apple.com/news/releases/rss/releases.rss"));
+    const items = parseRssItems(value.body);
+    const latest = latestAppleOsByFamily(items);
+    if (!latest.length) throw new SourceError("Apple OS release feed had no OS items.");
+
+    const components: ComponentHealth[] = latest.map((release) => ({
+      name: release.family,
+      health: isFreshRelease(release.publishedAt) ? "maintenance" : "operational",
+      detail: [release.version, formatReleaseAge(release.publishedAt)].filter(Boolean).join(" · "),
+    }));
+
+    const headline = [...latest].sort((a, b) => {
+      const aTime = Date.parse(a.publishedAt ?? "") || 0;
+      const bTime = Date.parse(b.publishedAt ?? "") || 0;
+      return bTime - aTime;
+    })[0];
+    const summary = headline
+      ? `Latest: ${headline.title}${headline.publishedAt ? ` · ${formatReleaseAge(headline.publishedAt)}` : ""}`
+      : "Apple OS release feed loaded.";
+
+    return {
+      ...base("apple-os", new Date().toISOString(), ms),
+      health: "operational",
+      summary,
+      components,
+      incidents: [],
+      meta: {
+        latest: headline?.title ?? "",
+        versions: formatVersionMap(latest.map((release) => ({ name: release.family, version: release.version }))),
+      },
+    };
+  } catch (error) {
+    return failed("apple-os", started, error);
+  }
+}
+
 export async function collectAllServices(): Promise<ServiceSnapshot[]> {
   return Promise.all([
     collectGcp(),
@@ -617,5 +736,7 @@ export async function collectAllServices(): Promise<ServiceSnapshot[]> {
     collectGrok(),
     collectChatGpt(),
     collectClaude(),
+    collectMikrotik(),
+    collectAppleOs(),
   ]);
 }

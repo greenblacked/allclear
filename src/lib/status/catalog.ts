@@ -15,6 +15,7 @@ export const CATEGORIES: { id: CategoryId; label: string }[] = [
   { id: "gaming", label: "Gaming" },
   { id: "platforms", label: "Platforms" },
   { id: "ai", label: "AI" },
+  { id: "updates", label: "Updates" },
 ];
 
 export const CATALOG: CatalogEntry[] = [
@@ -125,6 +126,24 @@ export const CATALOG: CatalogEntry[] = [
     sourceName: "Claude Status",
     sourceUrl: "https://status.claude.com/",
     blurb: "Claude apps, API, and Anthropic platform.",
+  },
+  {
+    id: "mikrotik",
+    name: "MikroTik RouterOS",
+    shortName: "RouterOS",
+    category: "updates",
+    sourceName: "MikroTik changelogs",
+    sourceUrl: "https://mikrotik.com/download/changelogs",
+    blurb: "Official RouterOS channel versions and changelogs.",
+  },
+  {
+    id: "apple-os",
+    name: "Apple OS",
+    shortName: "Apple OS",
+    category: "updates",
+    sourceName: "Apple Developer Releases",
+    sourceUrl: "https://developer.apple.com/news/releases/",
+    blurb: "iOS, iPadOS, macOS, watchOS, tvOS, and visionOS releases.",
   },
 ];
 
