@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, RefreshCw, Search } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LiveBar } from "@/components/status/live-bar";
 import { ServiceCard } from "@/components/status/service-card";
 import { UpdateFeed } from "@/components/status/update-feed";
@@ -29,7 +29,6 @@ const FILTERS: Array<{ id: "all" | CategoryId; label: string }> = [
   ...CATEGORIES,
 ];
 
-let didOpenRefresh = false;
 
 export function BoardView({ initial }: { initial: BoardSnapshot }) {
   const queryClient = useQueryClient();
@@ -72,25 +71,6 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
     if (store === null || next !== existing) setStore(next);
   }, [board, slot, store]);
 
-  useEffect(() => {
-    if (didOpenRefresh) return;
-    didOpenRefresh = true;
-    let cancelled = false;
-    setRefreshing(true);
-    void refreshStatusBoard()
-      .then((next) => {
-        if (!cancelled) queryClient.setQueryData(["status-board"], next);
-      })
-      .catch(() => {
-        if (!cancelled) void queryClient.invalidateQueries({ queryKey: ["status-board"] });
-      })
-      .finally(() => {
-        if (!cancelled) setRefreshing(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [queryClient]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -107,6 +87,8 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
     board.counts.degraded + board.counts.outage + board.counts.unknown + board.counts.maintenance;
 
   async function handleRefresh() {
+    if (manualRefreshInFlight.current) return;
+    manualRefreshInFlight.current = true;
     setRefreshing(true);
     try {
       const next = await refreshStatusBoard();
@@ -114,6 +96,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
     } catch {
       await boardQuery.refetch();
     } finally {
+      manualRefreshInFlight.current = false;
       setRefreshing(false);
     }
   }
@@ -134,7 +117,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
               AllClear
             </h1>
             <p className="mt-3 max-w-xl text-base leading-relaxed text-muted text-pretty">
-              Official sources are checked on open, then every two minutes.
+              Official sources are checked on a two-minute cadence; Refresh pulls a fresh check immediately.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -237,7 +220,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
             AllClear reads vendor status feeds only. It is not affiliated with Google, Amazon, Valve, Epic,
             Spotify, Apple, MikroTik, xAI, OpenAI, or Anthropic.
           </p>
-          <p>Checked on open, then every two minutes from official vendor feeds.</p>
+          <p>Cached server snapshots update every two minutes from official vendor feeds.</p>
         </footer>
       </main>
       </div>
