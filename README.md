@@ -1,6 +1,6 @@
 # AllClear
 
-**Repository:** [github.com/greenblacked/allclear](https://github.com/greenblacked/allclear)
+**Repository:** [github.com/greenblacked/status-page](https://github.com/greenblacked/status-page)
 
 Centralized live status board for the services people actually wait on: **GCP**, **AWS**, **Steam** (including **CS2 Europe**), **Epic Games** (including **Fortnite**), **Spotify**, **Apple**, **Android / Google Play**, **Grok**, **ChatGPT**, **Claude**, plus official **MikroTik RouterOS** and **Apple OS** changelogs.
 
