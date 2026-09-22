@@ -55,6 +55,18 @@ describe("aws health events", () => {
     assert.equal(awsEventActive({ status: 0, event_log: [{ timestamp: recent, message: "resolved" }] } as never, NOW), false);
   });
 
+  it("does not read a blank or null status as resolved", () => {
+    // Number(null) and Number("") are both 0, which would look like a
+    // vendor-reported resolution and drop a live event.
+    for (const status of [null, "", undefined]) {
+      assert.equal(
+        awsEventActive({ status, event_log: [{ timestamp: recent, message: "Elevated error rates" }] } as never, NOW),
+        true,
+        `status ${JSON.stringify(status)} should fall back to the update text`,
+      );
+    }
+  });
+
   it("ignores closed, stale, and pre-resolved events", () => {
     assert.equal(awsEventActive({ end_time: "2026-09-21", status: 1 } as never, NOW), false);
     assert.equal(awsEventActive({ summary: "[RESOLVED] Elevated errors", status: 1 } as never, NOW), false);

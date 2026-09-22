@@ -260,7 +260,13 @@ export function awsEventActive(event: AwsEvent, now: number): boolean {
   const lastMessage = `${last?.summary ?? ""} ${last?.message ?? ""}`.toLowerCase();
   // `Number(undefined)` is NaN and `NaN !== 0` is true, so an event missing
   // `status` used to count as active. Fall back to the update text instead.
-  const status = Number(event.status);
+  // null and "" coerce to 0, which would read as resolved, so only a real
+  // number or a non-blank numeric string counts as a reported status.
+  const raw = event.status as unknown;
+  const status =
+    typeof raw === "number" || (typeof raw === "string" && raw.trim() !== "")
+      ? Number(raw)
+      : Number.NaN;
   if (!Number.isFinite(status)) return !lastMessage.includes("resolved");
   if (lastMessage.includes("resolved") && status === 0) return false;
   return status !== 0;
@@ -582,6 +588,10 @@ async function collectGrok(): Promise<ServiceSnapshot> {
   try {
     const { value, ms } = await timed(() => fetchText("https://status.x.ai/feed.xml"));
     const items = parseRssItems(value.body);
+    // parseRssItems only understands RSS 2.0 <item>. If x.ai moves to Atom
+    // the parse yields nothing, and reporting that as "operational" would be
+    // a confident all-clear built on no data. Unknown is the honest answer.
+    if (items.length === 0) throw new SourceError("Grok feed returned no readable items.");
     const now = Date.now();
     const active = items.filter((item) => grokItemActive(item, now));
     let health: Health = "operational";
