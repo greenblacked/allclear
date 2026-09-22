@@ -7,6 +7,13 @@ range="${1:-origin/main..HEAD}"
 types='feat|fix|docs|refactor|test|chore|perf|ci|build|style|revert'
 fail=0
 
+# `mapfile < <(...)` cannot see the subshell's exit status, so an unfetched or
+# malformed range would look like "no commits" and pass the gate silently.
+if ! git rev-list --no-merges "$range" >/dev/null 2>&1; then
+  echo "::error::cannot resolve commit range: $range" >&2
+  exit 1
+fi
+
 mapfile -t shas < <(git rev-list --no-merges "$range")
 
 if [ "${#shas[@]}" -eq 0 ]; then

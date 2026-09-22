@@ -9,9 +9,9 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 2
 
-[*.md]
-# Markdown uses two trailing spaces for a hard line break.
-trim_trailing_whitespace = false
+# No [*.md] exemption: scripts/ci/hygiene.sh rejects trailing whitespace in
+# every text file, so exempting Markdown here would just turn CI red. Use a
+# backslash or a blank line for a hard break instead of two trailing spaces.
 
 [Makefile]
 indent_style = tab

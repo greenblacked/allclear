@@ -39,14 +39,18 @@ if git ls-files | grep -qE '(^|/)\.env($|\.)' ; then
 fi
 
 # CONTRIBUTING.md: TypeScript strict, no \`any\`.
-if git ls-files 'src/**/*.ts' 'src/**/*.tsx' | xargs -r grep -nE ':\s*any\b|<any>|as any' ; then
+# Matched with grep, not a pathspec: 'src/**/*.ts' needs an intermediate
+# directory, so it silently skipped src/router.tsx.
+ts_files() { git ls-files -- src | grep -E '\.tsx?$'; }
+
+if ts_files | xargs -r grep -nE ':\s*any\b|<any>|as any' ; then
   echo "::error::explicit \`any\` found; CONTRIBUTING.md requires TypeScript strict with no \`any\`" >&2
   fail=1
 fi
 
 # CONTRIBUTING.md: tokens live in src/styles.css, do not sprinkle raw hex in JSX.
 # `theme-color` is exempt: a meta tag cannot resolve a CSS custom property.
-if git ls-files 'src/**/*.tsx' | xargs -r grep -nE '#[0-9a-fA-F]{3,8}\b' | grep -v 'theme-color' ; then
+if ts_files | grep '\.tsx$' | xargs -r grep -nE '#[0-9a-fA-F]{3,8}\b' | grep -v 'theme-color' ; then
   echo "::error::raw hex color in JSX; use the tokens in src/styles.css" >&2
   fail=1
 fi
