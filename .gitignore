@@ -1,13 +1,4 @@
-node_modules
-.vercel
-.output
-.nitro
-dist
-.cache
-*.log
-.env
-.env.*
-!.env.example
-.DS_Store
-screenshots
-routeTree.gen.ts
+node_modules/
+.vinxi/
+dist/
+coverage/

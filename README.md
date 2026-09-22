@@ -37,7 +37,7 @@ Status is scattered across a dozen dashboards with different shapes. AllClear no
 | MikroTik RouterOS | [MikroTik changelogs](https://mikrotik.com/download/changelogs) | Official `NEWEST*` channel files + `CHANGELOG` |
 | Apple OS | [Apple Developer Releases](https://developer.apple.com/news/releases/) | Official releases RSS for iOS, iPadOS, macOS, watchOS, tvOS, visionOS |
 
-Snapshots cache for 45 seconds on the server. Opening the board always pulls a fresh check. After that, official sources are re-checked every two minutes and a board update is posted on the 2-minute clock.
+Snapshots cache for 45 seconds on the server. The board loads from that cache and checks official sources every two minutes. Use Refresh when you need an immediate fresh pull from vendors.
 
 ## Using the board
 

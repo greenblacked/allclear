@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, RefreshCw, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { LiveBar } from "@/components/status/live-bar";
 import { ServiceCard } from "@/components/status/service-card";
 import { UpdateFeed } from "@/components/status/update-feed";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { refreshStatusBoard } from "@/lib/status/board";
+import { fetchStatusBoard, refreshStatusBoard } from "@/lib/status/board";
 import { CATEGORIES } from "@/lib/status/catalog";
 import { overallHealth } from "@/lib/status/diff";
 import { healthLabel } from "@/lib/status/health";
@@ -38,11 +38,11 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
   const [category, setCategory] = useState<"all" | CategoryId>("all");
   const [issuesOnly, setIssuesOnly] = useState(false);
   const [store, setStore] = useState<PulseStore | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);\n  const manualRefreshInFlight = useRef(false);
 
   const boardQuery = useQuery({
     queryKey: ["status-board"],
-    queryFn: () => refreshStatusBoard(),
+    queryFn: () => fetchStatusBoard(),
     initialData: initial,
     refetchInterval: LIVE_REFETCH_MS,
     refetchIntervalInBackground: true,
