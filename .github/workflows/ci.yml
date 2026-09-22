@@ -18,12 +18,43 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
+      - name: Pin npm
+        run: npm install --global npm@11.9.0
+      - name: Verify declared toolchain
+        run: |
+          test "$(node --version)" = "v$(cat .nvmrc)"
+          test "$(npm --version)" = "11.9.0"
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Smoke-test built preview
+        shell: bash
+        run: |
+          set -uo pipefail
+          log_file="${RUNNER_TEMP}/allclear-preview.log"
+          npm run preview -- --port 4173 >"$log_file" 2>&1 &
+          preview_pid=$!
+          cleanup() {
+            kill "$preview_pid" 2>/dev/null || true
+            wait "$preview_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          response_file="${RUNNER_TEMP}/allclear-preview.html"
+          ready=false
+          for attempt in $(seq 1 2); do
+            if curl --silent --show-error --fail --max-time 15 http://127.0.0.1:4173/ -o "$response_file"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ] || ! grep -aq '<title>AllClear</title>' "$response_file" || ! grep -aq 'AllClear' "$response_file"; then
+            cat "$log_file"
+            exit 1
+          fi

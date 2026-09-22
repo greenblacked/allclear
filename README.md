@@ -63,6 +63,10 @@ docs/                     # commit and README conventions
 
 This app runs on TanStack Start, React 19, and Tailwind v4. Status collection happens in a server function (`src/lib/status/board.ts`) so the browser never has to fight CORS.
 
+Use Node 22.13.0 with npm 11.9.0 (`.nvmrc` and `packageManager` are authoritative), then run `npm ci`, `npm run typecheck`, `npm test`, and `npm run build`. `npm run preview` is a built-artifact smoke check, not a production SSR host: the TanStack build exports a Fetch-style handler in `dist/server/server.js` and this repository deliberately does not choose a deployment adapter. Production deployment must provide an explicit compatible adapter/host before it can run SSR.
+
+Pull requests run dependency review and fail on high or critical findings. Repository administrators must keep GitHub's dependency graph enabled; if that GitHub feature is unavailable, the check fails explicitly rather than skipping review.
+
 ## Git and authorship
 
 Commits in this repo follow Conventional Commits and are authored as the GitHub user who pushes them. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/git-and-readme.md](docs/git-and-readme.md).
