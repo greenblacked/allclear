@@ -1,5 +1,8 @@
 # AllClear
 
+[![CI](https://github.com/greenblacked/status-page/actions/workflows/ci.yml/badge.svg)](https://github.com/greenblacked/status-page/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/greenblacked/status-page/actions/workflows/codeql.yml/badge.svg)](https://github.com/greenblacked/status-page/actions/workflows/codeql.yml)
+
 **Repository:** [github.com/greenblacked/status-page](https://github.com/greenblacked/status-page)
 
 Centralized live status board for the services people actually wait on: **GCP**, **AWS**, **Steam** (including **CS2 Europe**), **Epic Games** (including **Fortnite**), **Spotify**, **Apple**, **Android / Google Play**, **Grok**, **ChatGPT**, **Claude**, plus official **MikroTik RouterOS** and **Apple OS** changelogs.
@@ -57,11 +60,39 @@ src/lib/status/           # catalog, health model, official fetchers
 src/components/status/    # board UI
 src/routes/               # TanStack Start routes
 docs/                     # commit and README conventions
+scripts/ci/               # checks that CI and contributors run identically
+.github/workflows/        # CI and CodeQL
 ```
 
 ## Development
 
-This app runs on TanStack Start, React 19, and Tailwind v4. Status collection happens in a server function (`src/lib/status/board.ts`) so the browser never has to fight CORS.
+The UI is React 19 on TanStack Start with Tailwind v4. Status collection happens in a server function (`src/lib/status/board.ts`) so the browser never has to fight CORS.
+
+**Requires Node 22.18+ or 24+.** The test suite imports `.ts` modules directly and relies on native type stripping, so it needs no install step and no test framework.
+
+### Checks
+
+Every CI check has the same local command:
+
+```bash
+node --test                               # whole suite
+node --test src/lib/status/diff.test.ts   # a single file
+
+./scripts/ci/hygiene.sh                   # line endings, trailing whitespace, final newline, no `any`, no raw hex in JSX
+./scripts/ci/links.sh                     # relative links in the Markdown docs
+./scripts/ci/commits.sh origin/main..HEAD # Conventional Commits
+```
+
+Covered by tests: the health model, board diffing, the two-minute pulse, and changelog parsing. The vendor collectors in `src/lib/status/sources.server.ts` are not, because they reach the network.
+
+### Toolchain status
+
+A fresh clone cannot build or serve the board yet, and CI is scoped to what is reproducible today. Two things are missing:
+
+- No `package.json`, lockfile, or bundler config is committed, so there is no `npm install` and no dev server
+- `src/router.tsx` and `src/routes/__root.tsx` import three modules that are not in the tree: `@/lib/error-component`, `@/lib/auth/provider`, and `@/components/preview-host-bridge`
+
+Once both land, add an `npm` entry to [`.github/dependabot.yml`](.github/dependabot.yml) and typecheck, lint, and build jobs to [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Git and authorship
 
