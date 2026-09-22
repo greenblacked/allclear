@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: nothing here writes to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # The suite uses node:test + node:assert/strict and imports .ts
+        # directly, so it runs on native type stripping with no install step.
+        # 22.18+ and 24.x strip types without a flag.
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Show runtime
+        run: node --version
+
+      - name: Run tests
+        run: node --test
+
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Repository hygiene
+        run: ./scripts/ci/hygiene.sh
+
+      - name: Documentation links
+        run: ./scripts/ci/links.sh
+
+      - name: Shell scripts
+        run: shellcheck scripts/ci/*.sh
+
+  commits:
+    name: commit messages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need both sides of the range to list the commits this PR adds.
+          fetch-depth: 0
+
+      - name: Check Conventional Commits
+        # Branch names are attacker-controlled on a fork PR, so the ref goes
+        # through the environment instead of being interpolated into the shell.
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          ./scripts/ci/commits.sh "origin/$BASE_REF..HEAD"
+
+  workflows:
+    name: workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: actionlint
+        run: |
+          docker run --rm \
+            --volume "$PWD:/repo" \
+            --workdir /repo \
+            rhysd/actionlint:latest -color

@@ -1,0 +1,13 @@
+version: 2
+
+updates:
+  # Keep the pinned action majors current. Add an `npm` entry here as soon as
+  # the repository gains a package.json and a lockfile.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    labels:
+      - dependencies
