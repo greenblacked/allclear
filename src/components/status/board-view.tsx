@@ -175,12 +175,13 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
               className="pl-10"
             />
           </label>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter services">
             {FILTERS.map((filter) => (
               <Button
                 key={filter.id}
                 variant={category === filter.id ? "default" : "outline"}
                 size="sm"
+                aria-pressed={category === filter.id}
                 onClick={() => setCategory(filter.id)}
               >
                 {filter.label}
@@ -189,6 +190,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
             <Button
               variant={issuesOnly ? "solid" : "ghost"}
               size="sm"
+              aria-pressed={issuesOnly}
               onClick={() => setIssuesOnly((value) => !value)}
             >
               Issues only
