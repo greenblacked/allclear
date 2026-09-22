@@ -83,7 +83,7 @@ node --test src/lib/status/diff.test.ts   # a single file
 ./scripts/ci/commits.sh origin/main..HEAD # Conventional Commits
 ```
 
-Covered by tests: the health model, board diffing, the two-minute pulse, and changelog parsing. The vendor collectors in `src/lib/status/sources.server.ts` are not, because they reach the network.
+Covered by tests: board diffing, the two-minute pulse, changelog parsing, and the pure decision rules inside the vendor collectors (Grok feed staleness, AWS event activity). The collectors' network paths are not covered, and neither is `http.ts`.
 
 ### Toolchain status
 
