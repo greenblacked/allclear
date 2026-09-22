@@ -1,4 +1,4 @@
-import type { CategoryId, ServiceId } from "./types";
+import type { CategoryId, ServiceId } from "./types.ts";
 
 export type CatalogEntry = {
   id: ServiceId;

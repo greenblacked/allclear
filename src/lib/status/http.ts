@@ -2,12 +2,15 @@ const USER_AGENT = "AllClear/1.0 (status board; official sources only)";
 const DEFAULT_TIMEOUT_MS = 9000;
 
 export class SourceError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-  ) {
+  // Declared as a field rather than a constructor parameter property:
+  // parameter properties are not erasable, so they break Node's type
+  // stripping and TypeScript's own `erasableSyntaxOnly`.
+  readonly status?: number;
+
+  constructor(message: string, status?: number) {
     super(message);
     this.name = "SourceError";
+    this.status = status;
   }
 }
 

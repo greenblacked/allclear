@@ -1,4 +1,4 @@
-import { CATALOG_BY_ID } from "./catalog";
+import { CATALOG_BY_ID } from "./catalog.ts";
 import {
   formatReleaseAge,
   formatVersionMap,
@@ -7,22 +7,22 @@ import {
   MIKROTIK_CHANNELS,
   parseMikrotikNewest,
   summarizeMikrotikChangelog,
-} from "./changelog";
-import { fetchJson, fetchText, SourceError } from "./http";
+} from "./changelog.ts";
+import { fetchJson, fetchText, SourceError } from "./http.ts";
 import {
   googleImpact,
   overallSummary,
   statuspageComponent,
   statuspageIndicator,
   worseHealth,
-} from "./health";
+} from "./health.ts";
 import type {
   ComponentHealth,
   Health,
   Incident,
   ServiceId,
   ServiceSnapshot,
-} from "./types";
+} from "./types.ts";
 
 const STALE_MS = 14 * 24 * 60 * 60 * 1000;
 const EU_POPS = new Set(["ams", "fra", "fsn", "hel", "lhr", "mad", "par", "sto", "sto2", "vie", "waw"]);
@@ -182,15 +182,14 @@ function fromStatuspage(
       health: statuspageComponent(component.status),
     }));
 
-  const visible = componentFilter
-    ? components
-    : components.slice(0, 8);
-
+  // Do not truncate here: the card below ranks non-operational components
+  // first and then caps the list. Slicing to 8 up front dropped a broken
+  // component that sorted past index 8 on a vendor with many components.
   let health = componentFilter
-    ? visible.reduce((acc, component) => worseHealth(acc, component.health), "operational" as Health)
+    ? components.reduce((acc, component) => worseHealth(acc, component.health), "operational" as Health)
     : statuspageIndicator(data.status?.indicator);
 
-  if (componentFilter && visible.length === 0) {
+  if (componentFilter && components.length === 0) {
     health = statuspageIndicator(data.status?.indicator);
   }
 
@@ -225,8 +224,8 @@ function fromStatuspage(
     ...base(id, checkedAt, latencyMs),
     health,
     summary: overallSummary(health, incidents.length, hint),
-    components: visible.filter((component) => component.health !== "operational").concat(
-      visible.filter((component) => component.health === "operational").slice(0, 4),
+    components: components.filter((component) => component.health !== "operational").concat(
+      components.filter((component) => component.health === "operational").slice(0, 4),
     ).slice(0, 8),
     incidents,
   };
@@ -251,7 +250,7 @@ async function collectGcp(): Promise<ServiceSnapshot> {
   }
 }
 
-function awsEventActive(event: AwsEvent, now: number): boolean {
+export function awsEventActive(event: AwsEvent, now: number): boolean {
   if (event.end_time) return false;
   const summary = event.summary ?? "";
   if (/^\[resolved\]/i.test(summary)) return false;
@@ -259,8 +258,12 @@ function awsEventActive(event: AwsEvent, now: number): boolean {
   const lastTs = (last?.timestamp ?? Number(event.date ?? 0)) * 1000;
   if (!lastTs || now - lastTs > STALE_MS) return false;
   const lastMessage = `${last?.summary ?? ""} ${last?.message ?? ""}`.toLowerCase();
-  if (lastMessage.includes("resolved") && Number(event.status) === 0) return false;
-  return Number(event.status) !== 0;
+  // `Number(undefined)` is NaN and `NaN !== 0` is true, so an event missing
+  // `status` used to count as active. Fall back to the update text instead.
+  const status = Number(event.status);
+  if (!Number.isFinite(status)) return !lastMessage.includes("resolved");
+  if (lastMessage.includes("resolved") && status === 0) return false;
+  return status !== 0;
 }
 
 function awsHealthFromEvent(event: AwsEvent): Health {
@@ -553,14 +556,25 @@ function parseRssItems(xml: string): Array<{ title: string; description: string;
   return items;
 }
 
-function grokItemHealth(description: string): Health {
+export function grokItemHealth(description: string): Health {
   const text = stripHtml(description).toLowerCase();
   if (text.includes("status: resolved") || text.includes("severity: available")) return "operational";
-  if (text.includes("outage") || text.includes("major")) return "outage";
+  // `\bmajor\b` so "majority of requests" is not read as a major outage.
+  if (text.includes("outage") || /\bmajor\b/.test(text)) return "outage";
   if (text.includes("maintenance")) return "maintenance";
-  if (text.includes("degraded") || text.includes("disruption")) return "degraded";
-  if (text.includes("investigat")) return "degraded";
   return "degraded";
+}
+
+// status.x.ai serves its whole incident history in one feed, so an item is
+// only evidence about right now if it is recent. An item with no parseable
+// pubDate cannot be shown to be current; AWS drops undated events the same way.
+export function grokItemActive(
+  item: { description: string; pubDate?: string },
+  now: number,
+): boolean {
+  if (grokItemHealth(item.description) === "operational") return false;
+  const at = item.pubDate ? Date.parse(item.pubDate) : Number.NaN;
+  return Number.isFinite(at) && now - at <= STALE_MS;
 }
 
 async function collectGrok(): Promise<ServiceSnapshot> {
@@ -568,7 +582,8 @@ async function collectGrok(): Promise<ServiceSnapshot> {
   try {
     const { value, ms } = await timed(() => fetchText("https://status.x.ai/feed.xml"));
     const items = parseRssItems(value.body);
-    const active = items.filter((item) => grokItemHealth(item.description) !== "operational");
+    const now = Date.now();
+    const active = items.filter((item) => grokItemActive(item, now));
     let health: Health = "operational";
     const incidents: Incident[] = active.slice(0, 8).map((item, index) => {
       const itemHealth = grokItemHealth(item.description);

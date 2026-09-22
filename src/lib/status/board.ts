@@ -27,7 +27,7 @@ async function collectBoard(force = false): Promise<BoardSnapshot> {
 
   inflight = (async () => {
     const started = Date.now();
-    const { collectAllServices } = await import("./sources.server");
+    const { collectAllServices } = await import("./sources.server.ts");
     const services = await collectAllServices();
     const board = assemble(services, Date.now() - started);
     cache = { expires: Date.now() + CACHE_TTL_MS, board };
