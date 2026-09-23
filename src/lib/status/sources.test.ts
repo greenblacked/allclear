@@ -1,6 +1,6 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { awsEventActive, grokItemActive, grokItemHealth } from "./sources.server.ts";
+import { awsEventActive, grokItemActive, grokItemHealth, saysResolved } from "./sources.server.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 8, 22, 12, 0, 0);
@@ -47,6 +47,18 @@ describe("aws health events", () => {
     assert.equal(
       awsEventActive({ event_log: [{ timestamp: recent, message: "The issue is resolved" }] } as never, NOW),
       false,
+    );
+  });
+
+  it("does not read a negated or prefixed 'resolved' as a resolution", () => {
+    assert.equal(saysResolved("The issue is resolved"), true);
+    assert.equal(saysResolved("Resolved: services recovered"), true);
+    assert.equal(saysResolved("We have not yet resolved the elevated error rates"), false);
+    assert.equal(saysResolved("The issue has not been resolved"), false);
+    assert.equal(saysResolved("Issue remains unresolved"), false);
+    assert.equal(
+      awsEventActive({ event_log: [{ timestamp: recent, message: "We have not yet resolved the errors" }] } as never, NOW),
+      true,
     );
   });
 

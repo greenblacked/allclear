@@ -250,6 +250,13 @@ async function collectGcp(): Promise<ServiceSnapshot> {
   }
 }
 
+// `includes("resolved")` also matched "unresolved" and "not yet resolved",
+// which would read a live incident's own update as its resolution.
+export function saysResolved(text: string): boolean {
+  const t = text.toLowerCase();
+  return /\bresolved\b/.test(t) && !/\bnot\s+(?:yet\s+)?(?:been\s+)?resolved\b/.test(t);
+}
+
 export function awsEventActive(event: AwsEvent, now: number): boolean {
   if (event.end_time) return false;
   const summary = event.summary ?? "";
@@ -267,8 +274,8 @@ export function awsEventActive(event: AwsEvent, now: number): boolean {
     typeof raw === "number" || (typeof raw === "string" && raw.trim() !== "")
       ? Number(raw)
       : Number.NaN;
-  if (!Number.isFinite(status)) return !lastMessage.includes("resolved");
-  if (lastMessage.includes("resolved") && status === 0) return false;
+  if (!Number.isFinite(status)) return !saysResolved(lastMessage);
+  if (saysResolved(lastMessage) && status === 0) return false;
   return status !== 0;
 }
 
