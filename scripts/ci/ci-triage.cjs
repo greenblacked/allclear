@@ -10,7 +10,7 @@
 // run correct.
 
 const WATCHED = ["CI", "CodeQL", "Dependency review"];
-const MARKER = "<!-- allclear-ci-triage -->";
+const MARKER = "<!-- status-bar-ci-triage -->";
 const LABEL = "ci-failed";
 const FAILED = new Set(["failure", "timed_out", "startup_failure"]);
 // Only these count as passing. cancelled, action_required (a fork run waiting

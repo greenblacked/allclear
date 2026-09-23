@@ -1,4 +1,4 @@
-# Contributing to AllClear
+# Contributing to Status Bar
 
 Two documents govern how work lands in this repository:
 
@@ -34,7 +34,7 @@ Rules:
 - Subject ≤ 72 characters, no trailing period
 - One logical change per commit
 - Body explains *why* when the diff is not obvious
-- Never commit secrets, `.env` files, or vendor credentials (AllClear does not need any)
+- Never commit secrets, `.env` files, or vendor credentials (Status Bar does not need any)
 
 Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`.
 

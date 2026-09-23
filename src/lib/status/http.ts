@@ -1,4 +1,4 @@
-const USER_AGENT = "AllClear/1.0 (status board; official sources only)";
+const USER_AGENT = "StatusBar/1.0 (status board; official sources only)";
 const DEFAULT_TIMEOUT_MS = 9000;
 
 export class SourceError extends Error {

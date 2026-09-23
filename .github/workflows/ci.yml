@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          log_file="${RUNNER_TEMP}/allclear-preview.log"
+          log_file="${RUNNER_TEMP}/status-bar-preview.log"
           setsid npm run preview -- --port 4173 --strictPort >"$log_file" 2>&1 &
           preview_pid=$!
           cleanup() {
@@ -65,8 +65,8 @@ jobs:
             wait "$preview_pid" 2>/dev/null || true
           }
           trap cleanup EXIT
-          response_file="${RUNNER_TEMP}/allclear-preview.html"
-          status_file="${RUNNER_TEMP}/allclear-preview.status"
+          response_file="${RUNNER_TEMP}/status-bar-preview.html"
+          status_file="${RUNNER_TEMP}/status-bar-preview.status"
           ready=false
           deadline=$((SECONDS + 30))
           while (( SECONDS < deadline )); do
@@ -82,7 +82,7 @@ jobs:
             fi
             sleep 2
           done
-          if [ "$ready" != true ] || ! grep -aq '<title>AllClear</title>' "$response_file" || ! grep -aq 'Cached server snapshots update every two minutes from official vendor feeds.' "$response_file"; then
+          if [ "$ready" != true ] || ! grep -aq '<title>Status Bar</title>' "$response_file" || ! grep -aq 'Cached server snapshots update every two minutes from official vendor feeds.' "$response_file"; then
             cat "$log_file"
             exit 1
           fi

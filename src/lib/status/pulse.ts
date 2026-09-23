@@ -2,7 +2,7 @@ import { diffBoards, overallHealth, type PulseChange } from "./diff.ts";
 import { lastPulseAt, MAX_PULSES } from "./schedule.ts";
 import type { BoardSnapshot, Health } from "./types.ts";
 
-const STORAGE_KEY = "allclear:pulses:v2";
+const STORAGE_KEY = "status-bar:pulses:v2";
 
 export type Pulse = {
   slot: number;

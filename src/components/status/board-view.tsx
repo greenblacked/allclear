@@ -119,7 +119,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
               Live status board
             </p>
             <h1 className="mt-2 font-display text-5xl font-medium tracking-[-0.04em] text-balance sm:text-6xl">
-              AllClear
+              Status Bar
             </h1>
             <p className="mt-3 max-w-xl text-base leading-relaxed text-muted text-pretty">
               Official sources are checked on a two-minute cadence; Refresh pulls a fresh check immediately.
@@ -225,7 +225,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
 
         <footer className="mt-14 flex flex-col gap-2 text-sm text-subtle">
           <p>
-            AllClear reads vendor status feeds only. It is not affiliated with Google, Amazon, Valve, Epic,
+            Status Bar reads vendor status feeds only. It is not affiliated with Google, Amazon, Valve, Epic,
             Spotify, Apple, MikroTik, xAI, OpenAI, or Anthropic.
           </p>
           <p>Cached server snapshots update every two minutes from official vendor feeds.</p>
