@@ -221,6 +221,17 @@ The repository checks need no install, and CI runs the same commands:
 node --experimental-strip-types scripts/ci/source-health.ts   # the one check that calls real vendors
 ```
 
+**In the shared CI images.** [`compose.yaml`](compose.yaml) runs the same checks inside the public images from [greenblacked/github-base-images](https://github.com/greenblacked/github-base-images), so a failure can be reproduced with the exact toolchain a container job uses. Only Docker is needed, no local Node:
+
+```bash
+docker compose run --rm node22         # ci-node22: npm ci, typecheck, tests, build, repository checks
+docker compose run --rm node24         # the same on ci-node24
+docker compose up preview              # ci-node22: serve the built board on http://127.0.0.1:4173
+docker compose run --rm security       # ci-security: trivy (HIGH/CRITICAL) and gitleaks
+```
+
+`node_modules` and `dist` stay inside Docker volumes, so the Linux install never overwrites a macOS or Windows one. The images follow the latest release of each Node line, while `.nvmrc` pins 22.13.0 for CI's `verify` job, so this is a check on the line rather than an exact replay of that job. The tags are rolling; set `CI_NODE22_IMAGE`, `CI_NODE24_IMAGE` or `CI_SECURITY_IMAGE` to an `@sha256:` digest to pin one. `docker compose down --volumes` removes the cached installs.
+
 Every pull request runs CI on the pinned Node and on Node 24, plus CodeQL and dependency review. A triage bot explains failed checks in one PR comment, and the hourly source-health job watches the real endpoints. [.github/workflows/README.md](.github/workflows/README.md) covers each workflow.
 
 **Adding a service:** add a catalog entry in `src/lib/status/catalog.ts` and a collector in `src/lib/status/sources.server.ts`, read only an official machine-readable source, map it onto the five states, and add it to [What it watches](#what-it-watches) in the same commit. [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-service) has the full checklist.
