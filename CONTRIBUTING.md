@@ -45,6 +45,13 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`.
 - Link any issue
 - Prefer small PRs that a reviewer can hold in their head
 
+## Dependencies
+
+Dependabot proposes npm and GitHub Actions updates weekly, grouped into production dependencies, development dependencies and Actions.
+
+- Actions stay pinned to a full commit SHA with the version in a trailing comment
+- `@types/node` must match the oldest supported Node (`engines` and `.nvmrc`), so Dependabot skips its major versions. Raise it by hand in the same PR that raises `engines`
+
 ## Adding a service
 
 1. Add a catalog entry in `src/lib/status/catalog.ts`
