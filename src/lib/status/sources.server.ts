@@ -1,4 +1,4 @@
-import { CATALOG_BY_ID } from "./catalog";
+import { CATALOG_BY_ID } from "./catalog.ts";
 import {
   formatReleaseAge,
   formatVersionMap,
@@ -7,22 +7,23 @@ import {
   MIKROTIK_CHANNELS,
   parseMikrotikNewest,
   summarizeMikrotikChangelog,
-} from "./changelog";
-import { fetchJson, fetchText, SourceError } from "./http";
+} from "./changelog.ts";
+import { fetchJson, fetchText, PayloadError, SourceError } from "./http.ts";
 import {
   googleImpact,
   overallSummary,
   statuspageComponent,
   statuspageIndicator,
   worseHealth,
-} from "./health";
+} from "./health.ts";
 import type {
   ComponentHealth,
   Health,
   Incident,
   ServiceId,
   ServiceSnapshot,
-} from "./types";
+  SourceFailure,
+} from "./types.ts";
 
 const STALE_MS = 14 * 24 * 60 * 60 * 1000;
 const EU_POPS = new Set(["ams", "fra", "fsn", "hel", "lhr", "mad", "par", "sto", "sto2", "vie", "waw"]);
@@ -124,6 +125,20 @@ function base(id: ServiceId, checkedAt: string, latencyMs: number): Omit<
   };
 }
 
+// SourceError is raised by http.ts for transport problems. Anything else that
+// escapes a collector (SyntaxError from JSON.parse, TypeError from a missing
+// field) means the vendor answered with a shape the collector does not expect.
+export function classifyFailure(error: unknown): SourceFailure {
+  if (error instanceof PayloadError) return { kind: "parser", message: error.message };
+  if (error instanceof SourceError) {
+    if (error.status !== undefined) return { kind: "http", message: error.message, status: error.status };
+    if (error.message.startsWith("Timed out")) return { kind: "timeout", message: error.message };
+    return { kind: "network", message: error.message };
+  }
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return { kind: "parser", message };
+}
+
 function failed(id: ServiceId, started: number, error: unknown): ServiceSnapshot {
   const message = error instanceof SourceError ? error.message : "Official source did not respond.";
   return {
@@ -132,6 +147,7 @@ function failed(id: ServiceId, started: number, error: unknown): ServiceSnapshot
     summary: message,
     components: [],
     incidents: [],
+    failure: classifyFailure(error),
   };
 }
 
@@ -182,15 +198,14 @@ function fromStatuspage(
       health: statuspageComponent(component.status),
     }));
 
-  const visible = componentFilter
-    ? components
-    : components.slice(0, 8);
-
+  // Do not truncate here: the card below ranks non-operational components
+  // first and then caps the list. Slicing to 8 up front dropped a broken
+  // component that sorted past index 8 on a vendor with many components.
   let health = componentFilter
-    ? visible.reduce((acc, component) => worseHealth(acc, component.health), "operational" as Health)
+    ? components.reduce((acc, component) => worseHealth(acc, component.health), "operational" as Health)
     : statuspageIndicator(data.status?.indicator);
 
-  if (componentFilter && visible.length === 0) {
+  if (componentFilter && components.length === 0) {
     health = statuspageIndicator(data.status?.indicator);
   }
 
@@ -225,8 +240,8 @@ function fromStatuspage(
     ...base(id, checkedAt, latencyMs),
     health,
     summary: overallSummary(health, incidents.length, hint),
-    components: visible.filter((component) => component.health !== "operational").concat(
-      visible.filter((component) => component.health === "operational").slice(0, 4),
+    components: components.filter((component) => component.health !== "operational").concat(
+      components.filter((component) => component.health === "operational").slice(0, 4),
     ).slice(0, 8),
     incidents,
   };
@@ -251,7 +266,14 @@ async function collectGcp(): Promise<ServiceSnapshot> {
   }
 }
 
-function awsEventActive(event: AwsEvent, now: number): boolean {
+// `includes("resolved")` also matched "unresolved" and "not yet resolved",
+// which would read a live incident's own update as its resolution.
+export function saysResolved(text: string): boolean {
+  const t = text.toLowerCase();
+  return /\bresolved\b/.test(t) && !/\bnot\s+(?:yet\s+)?(?:been\s+)?resolved\b/.test(t);
+}
+
+export function awsEventActive(event: AwsEvent, now: number): boolean {
   if (event.end_time) return false;
   const summary = event.summary ?? "";
   if (/^\[resolved\]/i.test(summary)) return false;
@@ -259,8 +281,18 @@ function awsEventActive(event: AwsEvent, now: number): boolean {
   const lastTs = (last?.timestamp ?? Number(event.date ?? 0)) * 1000;
   if (!lastTs || now - lastTs > STALE_MS) return false;
   const lastMessage = `${last?.summary ?? ""} ${last?.message ?? ""}`.toLowerCase();
-  if (lastMessage.includes("resolved") && Number(event.status) === 0) return false;
-  return Number(event.status) !== 0;
+  // `Number(undefined)` is NaN and `NaN !== 0` is true, so an event missing
+  // `status` used to count as active. Fall back to the update text instead.
+  // null and "" coerce to 0, which would read as resolved, so only a real
+  // number or a non-blank numeric string counts as a reported status.
+  const raw = event.status as unknown;
+  const status =
+    typeof raw === "number" || (typeof raw === "string" && raw.trim() !== "")
+      ? Number(raw)
+      : Number.NaN;
+  if (!Number.isFinite(status)) return !saysResolved(lastMessage);
+  if (saysResolved(lastMessage) && status === 0) return false;
+  return status !== 0;
 }
 
 function awsHealthFromEvent(event: AwsEvent): Health {
@@ -553,14 +585,25 @@ function parseRssItems(xml: string): Array<{ title: string; description: string;
   return items;
 }
 
-function grokItemHealth(description: string): Health {
+export function grokItemHealth(description: string): Health {
   const text = stripHtml(description).toLowerCase();
   if (text.includes("status: resolved") || text.includes("severity: available")) return "operational";
-  if (text.includes("outage") || text.includes("major")) return "outage";
+  // `\bmajor\b` so "majority of requests" is not read as a major outage.
+  if (text.includes("outage") || /\bmajor\b/.test(text)) return "outage";
   if (text.includes("maintenance")) return "maintenance";
-  if (text.includes("degraded") || text.includes("disruption")) return "degraded";
-  if (text.includes("investigat")) return "degraded";
   return "degraded";
+}
+
+// status.x.ai serves its whole incident history in one feed, so an item is
+// only evidence about right now if it is recent. An item with no parseable
+// pubDate cannot be shown to be current; AWS drops undated events the same way.
+export function grokItemActive(
+  item: { description: string; pubDate?: string },
+  now: number,
+): boolean {
+  if (grokItemHealth(item.description) === "operational") return false;
+  const at = item.pubDate ? Date.parse(item.pubDate) : Number.NaN;
+  return Number.isFinite(at) && now - at <= STALE_MS;
 }
 
 async function collectGrok(): Promise<ServiceSnapshot> {
@@ -568,7 +611,12 @@ async function collectGrok(): Promise<ServiceSnapshot> {
   try {
     const { value, ms } = await timed(() => fetchText("https://status.x.ai/feed.xml"));
     const items = parseRssItems(value.body);
-    const active = items.filter((item) => grokItemHealth(item.description) !== "operational");
+    // parseRssItems only understands RSS 2.0 <item>. If x.ai moves to Atom
+    // the parse yields nothing, and reporting that as "operational" would be
+    // a confident all-clear built on no data. Unknown is the honest answer.
+    if (items.length === 0) throw new PayloadError("Grok feed returned no readable items.");
+    const now = Date.now();
+    const active = items.filter((item) => grokItemActive(item, now));
     let health: Health = "operational";
     const incidents: Incident[] = active.slice(0, 8).map((item, index) => {
       const itemHealth = grokItemHealth(item.description);
@@ -621,13 +669,19 @@ async function collectMikrotik(): Promise<ServiceSnapshot> {
   const started = Date.now();
   try {
     const { value, ms } = await timed(async () => {
+      // Tell "nothing answered" apart from "something answered but did not
+      // parse": the second is a format change that needs a code fix.
+      let unparsed = 0;
       const channels = (
         await Promise.all(
           MIKROTIK_CHANNELS.map(async (channel) => {
             try {
               const { body } = await fetchText(`https://upgrade.mikrotik.com/routeros/${channel.file}`);
               const parsed = parseMikrotikNewest(body);
-              if (!parsed) return null;
+              if (!parsed) {
+                unparsed += 1;
+                return null;
+              }
               return { ...channel, ...parsed };
             } catch {
               return null;
@@ -635,7 +689,10 @@ async function collectMikrotik(): Promise<ServiceSnapshot> {
           }),
         )
       ).filter((channel): channel is NonNullable<typeof channel> => Boolean(channel));
-      if (!channels.length) throw new SourceError("MikroTik version channels did not respond.");
+      if (!channels.length) {
+        if (unparsed > 0) throw new PayloadError(`MikroTik answered ${unparsed} version channel(s) in an unrecognised format.`);
+        throw new SourceError("MikroTik version channels did not respond.");
+      }
       const stable = channels.find((channel) => channel.file === "NEWESTa7.stable");
       const newest = channels.reduce((current, channel) => {
         const currentTime = Date.parse(current.releasedAt ?? "") || 0;
@@ -689,7 +746,7 @@ async function collectAppleOs(): Promise<ServiceSnapshot> {
     const { value, ms } = await timed(() => fetchText("https://developer.apple.com/news/releases/rss/releases.rss"));
     const items = parseRssItems(value.body);
     const latest = latestAppleOsByFamily(items);
-    if (!latest.length) throw new SourceError("Apple OS release feed had no OS items.");
+    if (!latest.length) throw new PayloadError("Apple OS release feed had no OS items.");
 
     const components: ComponentHealth[] = latest.map((release) => ({
       name: release.family,

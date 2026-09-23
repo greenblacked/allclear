@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify (node ${{ matrix.label }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # package.json declares ">=22.13.0 <25". The pinned leg proves the
+        # exact toolchain in .nvmrc; the 24 leg covers the top of that range,
+        # which nothing exercised before.
+        include:
+          - label: pinned
+            node-version-file: .nvmrc
+          - label: '24'
+            node-version: '24'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: ${{ matrix.node-version-file }}
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - name: Pin npm
+        run: npm install --global npm@11.9.0
+      - name: Verify declared toolchain
+        env:
+          LABEL: ${{ matrix.label }}
+        run: |
+          if [ "$LABEL" = pinned ]; then
+            test "$(node --version)" = "v$(cat .nvmrc)"
+          else
+            case "$(node --version)" in "v$LABEL".*) ;; *) echo "::error::expected Node $LABEL, got $(node --version)"; exit 1 ;; esac
+          fi
+          test "$(npm --version)" = "11.9.0"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Smoke-test built preview
+        shell: bash
+        run: |
+          set -uo pipefail
+          log_file="${RUNNER_TEMP}/allclear-preview.log"
+          setsid npm run preview -- --port 4173 --strictPort >"$log_file" 2>&1 &
+          preview_pid=$!
+          cleanup() {
+            kill -- -"$preview_pid" 2>/dev/null || true
+            wait "$preview_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          response_file="${RUNNER_TEMP}/allclear-preview.html"
+          status_file="${RUNNER_TEMP}/allclear-preview.status"
+          ready=false
+          deadline=$((SECONDS + 30))
+          while (( SECONDS < deadline )); do
+            if ! kill -0 "$preview_pid" 2>/dev/null; then
+              cat "$log_file"
+              exit 1
+            fi
+            if curl --silent --show-error --fail --max-time 10 --write-out '%{http_code}' http://127.0.0.1:4173/ -o "$response_file" >"$status_file"; then
+              if [ "$(cat "$status_file")" = "200" ]; then
+                ready=true
+                break
+              fi
+            fi
+            sleep 2
+          done
+          if [ "$ready" != true ] || ! grep -aq '<title>AllClear</title>' "$response_file" || ! grep -aq 'Cached server snapshots update every two minutes from official vendor feeds.' "$response_file"; then
+            cat "$log_file"
+            exit 1
+          fi
+
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Repository hygiene
+        run: ./scripts/ci/hygiene.sh
+
+      - name: Documentation links
+        run: ./scripts/ci/links.sh
+
+      - name: Shell scripts
+        run: shellcheck scripts/ci/*.sh
+
+  commits:
+    name: commit messages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # Need both sides of the range to list the commits this PR adds.
+          fetch-depth: 0
+
+      - name: Check Conventional Commits
+        # Branch names are attacker-controlled on a fork PR, so the ref goes
+        # through the environment instead of being interpolated into the shell.
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          ./scripts/ci/commits.sh "origin/$BASE_REF..HEAD"
+
+  workflows:
+    name: workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      # Pinned by digest: Dependabot does not see images used in `run:`, so
+      # bump this by hand from https://hub.docker.com/r/rhysd/actionlint/tags.
+      - name: actionlint
+        run: |
+          docker run --rm \
+            --volume "$PWD:/repo" \
+            --workdir /repo \
+            rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color

@@ -1,5 +1,8 @@
 # AllClear
 
+[![CI](https://github.com/greenblacked/status-page/actions/workflows/ci.yml/badge.svg)](https://github.com/greenblacked/status-page/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/greenblacked/status-page/actions/workflows/codeql.yml/badge.svg)](https://github.com/greenblacked/status-page/actions/workflows/codeql.yml)
+
 **Repository:** [github.com/greenblacked/status-page](https://github.com/greenblacked/status-page)
 
 Centralized live status board for the services people actually wait on: **GCP**, **AWS**, **Steam** (including **CS2 Europe**), **Epic Games** (including **Fortnite**), **Spotify**, **Apple**, **Android / Google Play**, **Grok**, **ChatGPT**, **Claude**, plus official **MikroTik RouterOS** and **Apple OS** changelogs.
@@ -37,7 +40,7 @@ Status is scattered across a dozen dashboards with different shapes. AllClear no
 | MikroTik RouterOS | [MikroTik changelogs](https://mikrotik.com/download/changelogs) | Official `NEWEST*` channel files + `CHANGELOG` |
 | Apple OS | [Apple Developer Releases](https://developer.apple.com/news/releases/) | Official releases RSS for iOS, iPadOS, macOS, watchOS, tvOS, visionOS |
 
-Snapshots cache for 45 seconds on the server. Opening the board always pulls a fresh check. After that, official sources are re-checked every two minutes and a board update is posted on the 2-minute clock.
+Snapshots cache for 45 seconds on the server. The board loads from that cache and checks official sources every two minutes. Use Refresh when you need an immediate fresh pull from vendors.
 
 ## Using the board
 
@@ -57,11 +60,46 @@ src/lib/status/           # catalog, health model, official fetchers
 src/components/status/    # board UI
 src/routes/               # TanStack Start routes
 docs/                     # commit and README conventions
+scripts/ci/               # checks that CI and contributors run identically
+.github/workflows/        # CI, security scans and the triage and source-health bots
 ```
 
 ## Development
 
-This app runs on TanStack Start, React 19, and Tailwind v4. Status collection happens in a server function (`src/lib/status/board.ts`) so the browser never has to fight CORS.
+The UI is React 19 on TanStack Start with Tailwind v4. Status collection happens in a server function (`src/lib/status/board.ts`) so the browser never has to fight CORS.
+
+Use Node 22.13.0 with npm 11.9.0 (`.nvmrc` and `packageManager` are authoritative):
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run build
+```
+
+`npm run preview` is a built-artifact smoke check, not a production SSR host: the TanStack build exports a Fetch-style handler in `dist/server/server.js` and this repository deliberately does not choose a deployment adapter. Production deployment must provide an explicit compatible adapter/host before it can run SSR.
+
+### Repository checks
+
+These need no install, and CI runs them with the same commands:
+
+```bash
+./scripts/ci/hygiene.sh                   # line endings, trailing whitespace, final newline, no `any`, no raw hex in JSX
+./scripts/ci/links.sh                     # relative links in the Markdown docs
+./scripts/ci/commits.sh origin/main..HEAD # Conventional Commits
+```
+
+Covered by tests: board diffing, the two-minute pulse, changelog parsing, the server TTL cache, the pure decision rules inside the vendor collectors (Grok feed staleness, AWS event activity, failure classification), and the triage and source-health bots against fake GitHub APIs. PR CI stays offline, so the collectors' live network paths are exercised only by the hourly source-health run.
+
+Two bots run alongside CI. `ci-triage.yml` keeps one comment on each failing pull request that names the failed job, step and likely cause. `source-health.yml` calls the real vendor endpoints every hour and opens an issue when a collector can no longer read its source, for example when a vendor changes its payload. It closes that issue on recovery. To run the same live check locally:
+
+```bash
+node --experimental-strip-types scripts/ci/source-health.ts
+```
+
+Security reports go through [SECURITY.md](SECURITY.md).
+
+Pull requests run dependency review and fail on high or critical findings. The review needs GitHub's **Dependency graph** setting (Settings → Code security and analysis). When that setting is off, the job passes but posts a warning and a step summary saying the dependency changes were not reviewed. It fails, never skips, if its token cannot read the repository or the API answers anything unexpected.
 
 ## Git and authorship
 

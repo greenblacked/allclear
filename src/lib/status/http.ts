@@ -2,12 +2,25 @@ const USER_AGENT = "AllClear/1.0 (status board; official sources only)";
 const DEFAULT_TIMEOUT_MS = 9000;
 
 export class SourceError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-  ) {
+  // Declared as a field rather than a constructor parameter property:
+  // parameter properties are not erasable, so they break Node's type
+  // stripping and TypeScript's own `erasableSyntaxOnly`.
+  readonly status?: number;
+
+  constructor(message: string, status?: number) {
     super(message);
     this.name = "SourceError";
+    this.status = status;
+  }
+}
+
+// The vendor answered, but not with data the collector can use: an empty
+// feed, missing items, or no channel that parses. Unlike a transport failure,
+// this usually means the payload changed and the collector needs a fix.
+export class PayloadError extends SourceError {
+  constructor(message: string) {
+    super(message);
+    this.name = "PayloadError";
   }
 }
 

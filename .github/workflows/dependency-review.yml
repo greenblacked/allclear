@@ -1,0 +1,81 @@
+name: Dependency review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The review action hard-fails with "Dependency review is not supported
+      # on this repository" whenever the repository's Dependency graph setting
+      # is off. That is a settings problem, not a finding, and no commit can
+      # fix it, so it held every PR red. Ask the API first: review strictly
+      # when the graph is available, warn loudly when it is not, and fail on
+      # anything unexpected rather than guessing.
+      - name: Check dependency graph availability
+        id: graph
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          api() { # $1 = output file, $2 = API path; prints the HTTP status
+            curl --silent --show-error --retry 3 --max-time 30 \
+              --output "$1" --write-out '%{http_code}' \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/$2" || true
+          }
+
+          # A 403 alone cannot tell "graph disabled" from "token broken", and
+          # skipping on a broken token would hide exactly what this job guards.
+          # Prove the token works on an endpoint it must be able to read first.
+          repo_status=$(api "$RUNNER_TEMP/repo.json" "repos/$REPO")
+          if [ "$repo_status" != "200" ]; then
+            echo "::error::Token cannot read $REPO (HTTP ${repo_status:-none}); refusing to skip review."
+            cat "$RUNNER_TEMP/repo.json" 2>/dev/null || true
+            exit 1
+          fi
+
+          body="$RUNNER_TEMP/dependency-graph.json"
+          status=$(api "$body" "repos/$REPO/dependency-graph/compare/$BASE_SHA...$HEAD_SHA")
+
+          case "$status" in
+            200)
+              echo "available=true" >> "$GITHUB_OUTPUT"
+              ;;
+            403|404)
+              # The token just read the repository, so this refusal is about
+              # the dependency graph itself, not about credentials.
+              echo "available=false" >> "$GITHUB_OUTPUT"
+              settings="https://github.com/$REPO/settings/security_analysis"
+              echo "::warning title=Dependency review skipped::Dependency graph is not enabled (HTTP $status), so dependency changes in this PR were NOT reviewed. Enable it at $settings to turn this gate on."
+              {
+                echo "### Dependency review skipped"
+                echo
+                echo "The Dependency graph API answered HTTP $status, so dependency changes in this pull request were **not reviewed**."
+                echo "Enable **Dependency graph** at $settings and re-run this job to turn the gate on."
+              } >> "$GITHUB_STEP_SUMMARY"
+              cat "$body"
+              ;;
+            *)
+              echo "::error::Unexpected HTTP ${status:-none} from the dependency graph API; refusing to skip review."
+              cat "$body" 2>/dev/null || true
+              exit 1
+              ;;
+          esac
+
+      - name: Review dependency changes
+        if: steps.graph.outputs.available == 'true'
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          fail-on-scopes: runtime, development, unknown

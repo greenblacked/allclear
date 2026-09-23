@@ -47,6 +47,19 @@ export type ServiceSnapshot = {
   components: ComponentHealth[];
   incidents: Incident[];
   meta?: Record<string, string | number>;
+  /** Set only when the collector itself failed; health is then "unknown". */
+  failure?: SourceFailure;
+};
+
+/**
+ * Why a collector could not produce a reading. "parser" means the vendor
+ * answered but the payload was not the shape the collector expects, which is
+ * the failure that needs a code change rather than patience.
+ */
+export type SourceFailure = {
+  kind: "http" | "timeout" | "network" | "parser";
+  message: string;
+  status?: number;
 };
 
 export type BoardSnapshot = {
