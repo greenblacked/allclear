@@ -1,0 +1,194 @@
+// CI triage bot, run by .github/workflows/ci-triage.yml through
+// actions/github-script. It is a controller, not a build executor: it only
+// reads the GitHub API and writes one PR comment and one label. It never runs
+// code from the pull request.
+//
+// Each run rebuilds the whole picture from the API for the PR's current head
+// commit, rather than trusting the single workflow_run event that woke it.
+// GitHub keeps at most one pending run per concurrency group and cancels the
+// rest, so an event can be dropped; recomputing everything makes any surviving
+// run correct.
+
+const WATCHED = ["CI", "CodeQL", "Dependency review"];
+const MARKER = "<!-- allclear-ci-triage -->";
+const LABEL = "ci-failed";
+const FAILED = new Set(["failure", "timed_out", "startup_failure"]);
+
+// Job and step names come from workflow files in the PR head, so a fork
+// controls them. Keep them inside code spans (no mentions, no links) and short.
+function code(text) {
+  return "`" + String(text).replace(/[`\r\n]+/g, " ").slice(0, 120) + "`";
+}
+
+function categorize(workflow, jobName, stepName) {
+  const step = (stepName || "").toLowerCase();
+  if (!stepName) return "infrastructure: the job failed without a failing step (timeout, cancellation or runner loss)";
+  if (workflow === "CodeQL") return "code scanning";
+  if (workflow === "Dependency review") {
+    return step.includes("availability")
+      ? "dependency graph API: token or API problem"
+      : "dependency review: a high or critical vulnerability, or a disallowed change";
+  }
+  const rules = [
+    [/set up job|checkout|setup-node|post /, "infrastructure"],
+    [/pin npm|declared toolchain/, "toolchain version"],
+    [/npm ci/, "dependency install"],
+    [/typecheck/, "type error"],
+    [/npm test/, "test failure"],
+    [/npm run build/, "build"],
+    [/smoke/, "SSR smoke test: the built app did not serve"],
+    [/hygiene/, "repository hygiene"],
+    [/documentation links/, "broken documentation link"],
+    [/shell scripts/, "shellcheck"],
+    [/conventional commits/, "commit message format"],
+    [/actionlint/, "workflow syntax"],
+  ];
+  for (const [pattern, label] of rules) if (pattern.test(step)) return label;
+  return "unclassified";
+}
+
+async function findPullRequest(github, owner, repo, run) {
+  if (run.pull_requests && run.pull_requests.length > 0) return run.pull_requests[0].number;
+  const { data: byCommit } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+    owner,
+    repo,
+    commit_sha: run.head_sha,
+  });
+  const open = byCommit.find((pr) => pr.state === "open");
+  if (open) return open.number;
+  // Fork PRs leave workflow_run.pull_requests empty; match on the head branch.
+  if (run.head_repository) {
+    const { data } = await github.rest.pulls.list({
+      owner,
+      repo,
+      state: "open",
+      head: `${run.head_repository.owner.login}:${run.head_branch}`,
+    });
+    if (data.length > 0) return data[0].number;
+  }
+  return undefined;
+}
+
+async function latestRuns(github, owner, repo, headSha) {
+  const { data } = await github.rest.actions.listWorkflowRunsForRepo({
+    owner,
+    repo,
+    head_sha: headSha,
+    event: "pull_request",
+    per_page: 100,
+  });
+  const latest = new Map();
+  for (const run of data.workflow_runs) {
+    if (!WATCHED.includes(run.name)) continue;
+    const previous = latest.get(run.name);
+    if (!previous || run.run_number > previous.run_number) latest.set(run.name, run);
+  }
+  return latest;
+}
+
+async function describeFailure(github, owner, repo, run) {
+  const { data } = await github.rest.actions.listJobsForWorkflowRun({
+    owner,
+    repo,
+    run_id: run.id,
+    filter: "latest",
+    per_page: 100,
+  });
+  const failures = [];
+  for (const job of data.jobs) {
+    if (!FAILED.has(job.conclusion)) continue;
+    const step = (job.steps || []).find((s) => FAILED.has(s.conclusion));
+    failures.push({
+      job: job.name,
+      step: step ? step.name : undefined,
+      url: step ? `${job.html_url}#step:${step.number}:1` : job.html_url,
+      category: categorize(run.name, job.name, step && step.name),
+    });
+  }
+  return failures;
+}
+
+function render(headSha, rows, failing) {
+  const short = headSha.slice(0, 7);
+  const lines = [MARKER];
+  lines.push(failing ? `### ❌ CI failing on \`${short}\`` : `### ✅ Recovered: all watched workflows pass on \`${short}\``);
+  lines.push("", "| Workflow | Result |", "| --- | --- |");
+  for (const row of rows) lines.push(`| ${row.workflow} | ${row.result} |`);
+  lines.push(
+    "",
+    "<sub>Updated in place by `.github/workflows/ci-triage.yml`. It reads the GitHub API only and never runs code from this pull request.</sub>",
+  );
+  return lines.join("\n");
+}
+
+async function triage({ github, context, core }) {
+  const { owner, repo } = context.repo;
+  const trigger = context.payload.workflow_run;
+
+  const number = await findPullRequest(github, owner, repo, trigger);
+  if (!number) return core.info(`No open pull request for ${trigger.head_sha}; nothing to do.`);
+
+  const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+  if (pr.state !== "open") return core.info(`#${number} is ${pr.state}; nothing to do.`);
+  if (pr.head.sha !== trigger.head_sha) {
+    return core.info(`#${number} has moved on to ${pr.head.sha}; ignoring the result for ${trigger.head_sha}.`);
+  }
+
+  const runs = await latestRuns(github, owner, repo, pr.head.sha);
+  const rows = [];
+  let failing = false;
+  let pending = false;
+  for (const workflow of WATCHED) {
+    const run = runs.get(workflow);
+    if (!run) continue;
+    if (run.status !== "completed") {
+      pending = true;
+      rows.push({ workflow, result: `⏳ ${run.status} · [run](${run.html_url})` });
+    } else if (FAILED.has(run.conclusion)) {
+      failing = true;
+      const failures = await describeFailure(github, owner, repo, run);
+      const detail = failures.length
+        ? failures
+            .map((f) => `${code(f.job)}${f.step ? ` → ${code(f.step)}` : ""}: ${f.category} · [logs](${f.url})`)
+            .join("<br>")
+        : `${run.conclusion} · [run](${run.html_url})`;
+      rows.push({ workflow, result: `❌ ${detail}` });
+    } else {
+      rows.push({ workflow, result: `✅ ${run.conclusion} · [run](${run.html_url})` });
+    }
+  }
+
+  const comments = await github.paginate(github.rest.issues.listComments, {
+    owner,
+    repo,
+    issue_number: number,
+    per_page: 100,
+  });
+  const existing = comments.find((c) => c.user && c.user.type === "Bot" && (c.body || "").startsWith(MARKER));
+
+  if (failing || existing) {
+    // A green PR that never failed gets no comment at all. While a recovery
+    // is still in flight, keep the red report rather than declaring success.
+    if (!failing && pending) {
+      core.info("No failures, but runs are still in flight; leaving the comment until they finish.");
+    } else {
+      const body = render(pr.head.sha, rows, failing);
+      if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+      else await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
+    }
+  }
+
+  const labelled = (pr.labels || []).some((l) => l.name === LABEL);
+  if (failing && !labelled) {
+    await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: [LABEL] });
+  } else if (!failing && !pending && labelled) {
+    try {
+      await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: LABEL });
+    } catch (error) {
+      if (error.status !== 404) throw error;
+    }
+  }
+  core.info(`#${number}: ${failing ? "failing" : pending ? "pending" : "green"}`);
+}
+
+module.exports = { triage, categorize, MARKER, LABEL };
