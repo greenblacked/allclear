@@ -3,17 +3,28 @@
 [![CI](https://github.com/greenblacked/status-page/actions/workflows/ci.yml/badge.svg)](https://github.com/greenblacked/status-page/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/greenblacked/status-page/actions/workflows/codeql.yml/badge.svg)](https://github.com/greenblacked/status-page/actions/workflows/codeql.yml)
 
-One live board for the services people actually wait on, read only from each vendor's own status surface.
+A live status board for cloud, gaming, platform and AI services, built only from each vendor's official status source.
+
+AllClear puts fourteen services on one screen, maps every vendor's wording onto the same five health states, and refreshes every two minutes. It needs no API keys, no accounts and no configuration.
+
+## Contents
+
+- [Why](#why)
+- [What you get](#what-you-get)
+- [Sources](#sources)
+- [Getting started](#getting-started)
+- [Development](#development)
+- [Security](#security)
+- [Disclaimer and license](#disclaimer-and-license)
+- [Contributing](#contributing)
 
 ## Why
 
-When something breaks, the answer is spread across a dozen vendor dashboards, each with its own layout and vocabulary. Third-party outage trackers are faster to check but report user complaints, not vendor-confirmed status.
+When something breaks, the answer is spread across a dozen vendor dashboards, each with its own layout and vocabulary. Third-party outage trackers are quicker to check, but they report user complaints, not what the vendor has confirmed.
 
-AllClear reads the official sources, maps them onto one health model, and shows them side by side. It needs no API keys and uses no unofficial aggregators.
+AllClear reads the official sources, normalizes them, and shows them side by side. It never uses unofficial aggregators.
 
 ## What you get
-
-Fourteen services in five groups:
 
 | Group | Services |
 | --- | --- |
@@ -58,9 +69,43 @@ The source list is the contract: if a row is not here, AllClear does not read it
 
 The two Updates services track releases, not incidents. They stay Operational, and a channel or OS released in the last 14 days is highlighted on its card.
 
-Each source gets 9 seconds. A source that fails or changes its format shows as Unknown instead of a guess, and the card says why.
+### How a snapshot is built
 
-## Using the board
+```mermaid
+flowchart LR
+  board["Board in the browser<br/>every 2 minutes"] --> cache{"Server snapshot<br/>under 45 seconds old?"}
+  cache -->|yes| snapshot["Snapshot returned<br/>to the board"]
+  cache -->|no| collectors["14 collectors in parallel<br/>9-second timeout each"]
+  refresh["Refresh button"] -->|skips the cache| collectors
+  collectors <--> vendors[("Official vendor sources")]
+  collectors --> snapshot
+```
+
+Collection runs on the server, so the browser never has to deal with vendor CORS, and every open board shares the same cached snapshot. Each collector fails on its own: a source that times out or changes its format shows as Unknown with the reason on its card, and the rest of the board is unaffected.
+
+## Getting started
+
+### Prerequisites
+
+- Node 22.13.0 (pinned in `.nvmrc`; `engines` allows 22.13 up to, but not including, 25)
+- npm 11.9.0 (pinned in `packageManager`)
+- Outbound HTTPS from the machine running the server to the vendor hosts in the [Sources](#sources) table
+
+No API keys, accounts or environment variables are needed.
+
+### Run it locally
+
+```bash
+git clone https://github.com/greenblacked/status-page.git
+cd status-page
+nvm use            # or install Node 22.13.0 another way
+npm ci
+npm run dev
+```
+
+Open the local URL that Vite prints. The first load collects all fourteen sources, which can take a few seconds.
+
+### Using the board
 
 - Scan the overall card, then the Operational and Attention counts next to it. Attention counts every service that is not Operational
 - Filter by Cloud, Gaming, Platforms, AI or Updates, search by name, or switch on **Issues only**
@@ -69,25 +114,28 @@ Each source gets 9 seconds. A source that fails or changes its format shows as U
 - Press Refresh to pull fresh data from every vendor now instead of waiting
 - Open the vendor's own status page from any card
 
-The server caches each snapshot for 45 seconds, so many open boards share one set of vendor requests.
-
 AllClear is an aggregator. The vendor's page is always the source of truth.
+
+### Troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| Every card shows Unknown | The server cannot reach the vendor hosts. Check outbound HTTPS, proxies and firewalls on the machine running `npm run dev` |
+| One card shows Unknown | That vendor timed out or changed its format. The card shows the reason; the hourly source-health check opens an issue if it persists |
+| The Board log stays empty | It fills one entry per two-minute slot, and it needs browser storage. Private windows or blocked site data keep it empty |
+| `npm ci` prints an `EBADENGINE` warning | The active Node version is outside `>=22.13.0 <25`. Run `nvm use` |
 
 ## Development
 
-React 19 on TanStack Start, styled with Tailwind v4. Collection runs in a server function (`src/lib/status/board.ts`), so the browser never has to deal with vendor CORS.
+React 19 on TanStack Start, styled with Tailwind v4, tested with Vitest.
 
-Use Node 22.13.0 and npm 11.9.0; `.nvmrc` and `packageManager` are authoritative.
-
-```bash
-npm ci
-npm run dev        # local dev server
-npm run typecheck
-npm test
-npm run build
-```
-
-`npm run preview` smoke-tests the built output; it is not a production host. The build exports a Fetch-style handler in `dist/server/server.js`, and this repository deliberately has no deployment adapter yet. Production needs an explicit SSR host before it can run.
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Development server with hot reload |
+| `npm run typecheck` | TypeScript in strict mode, no emit |
+| `npm test` | Unit tests |
+| `npm run build` | Production build into `dist/` |
+| `npm run preview` | Serves the built output for a smoke test |
 
 ### Project layout
 
@@ -100,10 +148,6 @@ scripts/ci/               # checks that CI and contributors run the same way
 docs/                     # commit and README conventions
 ```
 
-### Adding a service
-
-Add a catalog entry in `src/lib/status/catalog.ts` and a collector in `src/lib/status/sources.server.ts`. Read only an official machine-readable source, map it onto the five states, and add its row to the Sources table in the same commit. [CONTRIBUTING.md](CONTRIBUTING.md) has the full checklist.
-
 ### Checks
 
 These need no install, and CI runs the same commands:
@@ -114,33 +158,33 @@ These need no install, and CI runs the same commands:
 ./scripts/ci/commits.sh origin/main..HEAD # Conventional Commits
 ```
 
-The tests cover board diffing, the two-minute schedule, changelog parsing, the server cache, the collectors' decision rules (AWS event activity, Grok feed staleness, failure classification), and both bots against fake GitHub APIs. PR CI stays offline, so it never calls a vendor.
-
-### Automation
-
-- **CI** type-checks, tests and builds on the pinned Node and on Node 24, smoke-tests the built app, and lints the repository, commits and workflows
-- **CodeQL** scans the code on every PR, on `main`, and weekly
-- **Dependency review** blocks PRs that add high or critical vulnerabilities. It needs the repository's Dependency graph setting; with that off, it passes with a warning that nothing was reviewed
-- **CI triage** keeps one comment on a failing PR that names the failed job, step and likely cause, and removes its `ci-failed` label when the PR recovers
-- **Source health** calls the real vendor endpoints every hour. It opens one issue per collector that can no longer read its source and closes it on recovery
-
-To run the live source check locally:
+The unit tests cover board diffing, the two-minute schedule, changelog parsing, the server cache, the collectors' decision rules, and both repository bots. They never call a vendor. To check the real vendor endpoints:
 
 ```bash
 node --experimental-strip-types scripts/ci/source-health.ts
 ```
 
-Dependabot proposes npm and Actions updates weekly. It skips major versions of `@types/node`, which must match the oldest supported Node; raise it together with `engines`. [.github/workflows/README.md](.github/workflows/README.md) describes each workflow.
+### CI and automation
 
-Report security issues through [SECURITY.md](SECURITY.md), not a public issue.
+Every pull request runs CI on the pinned Node and on Node 24, plus CodeQL and dependency review. Two bots run alongside: one explains failed PR checks in a single comment, and an hourly job opens an issue when a collector can no longer read its source. [.github/workflows/README.md](.github/workflows/README.md) describes each workflow.
 
-## Disclaimer
+### Adding a service
+
+Add a catalog entry in `src/lib/status/catalog.ts` and a collector in `src/lib/status/sources.server.ts`. Read only an official machine-readable source, map it onto the five states, and add its row to the [Sources](#sources) table in the same commit. [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-service) has the full checklist.
+
+### Deployment
+
+There is no production deployment yet. `npm run build` produces a Fetch-style handler in `dist/server/server.js`, and the repository deliberately does not pick a deployment adapter. `npm run preview` is a smoke test of that build, not a production host.
+
+## Security
+
+Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md). Do not open a public issue.
+
+## Disclaimer and license
 
 Not affiliated with Google, Amazon, Valve, Epic Games, Spotify, Apple, MikroTik, xAI, OpenAI, or Anthropic. Names and marks belong to their owners.
 
-## License
-
-MIT. See [LICENSE](LICENSE).
+Released under the MIT License. See [LICENSE](LICENSE).
 
 ## Contributing
 
