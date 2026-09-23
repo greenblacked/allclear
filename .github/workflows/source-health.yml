@@ -30,6 +30,9 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: .nvmrc
+          # setup-node caches npm automatically because package.json names
+          # npm in packageManager. This job installs nothing, so skip it.
+          package-manager-cache: false
       # The collectors use only Node built-ins (fetch, TextDecoder), and the
       # script runs on Node's own TypeScript stripping, so there is no
       # `npm ci`: nothing from the lockfile executes in a job that can write
