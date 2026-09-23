@@ -142,6 +142,22 @@ describe("ci triage", () => {
     expect(comments[0].body).toContain("`x \\| @org/team [link](http://evil)`");
   });
 
+  it("escapes backslashes too, so a backslash cannot un-escape the pipe", async () => {
+    runs = [{ ...green(1, "CI"), conclusion: "failure" }];
+    jobs[1] = [{ name: "a\\| @org/team", conclusion: "failure", html_url: "j", steps: [] }];
+    await run();
+    const row = comments[0].body.split("\n").find((line) => line.startsWith("| CI |")) ?? "";
+    // Split as GitHub does: a backslash escapes the next character, and an
+    // unescaped pipe ends a cell. The row must have exactly two cells.
+    const cells = [""];
+    for (let i = 0; i < row.length; i += 1) {
+      if (row[i] === "\\") cells[cells.length - 1] += row[i] + (row[++i] ?? "");
+      else if (row[i] === "|") cells.push("");
+      else cells[cells.length - 1] += row[i];
+    }
+    expect(cells.slice(1, -1)).toHaveLength(2);
+  });
+
   it("does not declare recovery when the re-run was cancelled", async () => {
     runs = [{ ...green(1, "CI"), conclusion: "failure" }];
     jobs[1] = [{ name: "quality", conclusion: "failure", html_url: "j", steps: [{ name: "Repository hygiene", number: 3, conclusion: "failure" }] }];

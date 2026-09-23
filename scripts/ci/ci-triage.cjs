@@ -21,9 +21,14 @@ const PASSED = new Set(["success", "neutral", "skipped"]);
 // Job and step names come from workflow files in the PR head, so a fork
 // controls them. Keep them inside code spans (no mentions, no links) and short.
 // Inside a table cell a bare | ends the cell even within a code span, which
-// would let a name break out of the span; GitHub renders \| as a literal pipe.
+// would let a name break out of the span. Escaping | alone is not enough:
+// "\|" would become "\\|", an escaped backslash followed by a bare pipe. So
+// backslashes and pipes are escaped together, in one pass.
 function code(text) {
-  const safe = String(text).replace(/[`\r\n]+/g, " ").slice(0, 120).replace(/\|/g, "\\|");
+  const safe = String(text)
+    .replace(/[`\r\n]+/g, " ")
+    .slice(0, 120)
+    .replace(/[\\|]/g, (ch) => "\\" + ch);
   return "`" + safe + "`";
 }
 
