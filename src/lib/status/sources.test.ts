@@ -1,6 +1,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { awsEventActive, grokItemActive, grokItemHealth, saysResolved } from "./sources.server.ts";
+import { awsEventActive, classifyFailure, grokItemActive, grokItemHealth, saysResolved } from "./sources.server.ts";
+import { SourceError } from "./http.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 8, 22, 12, 0, 0);
@@ -86,5 +87,30 @@ describe("aws health events", () => {
       awsEventActive({ status: 1, event_log: [{ timestamp: Math.floor((NOW - 30 * DAY) / 1000), message: "Investigating" }] } as never, NOW),
       false,
     );
+  });
+});
+
+describe("collector failure classification", () => {
+  it("separates transport failures from payload-shape failures", () => {
+    assert.deepEqual(classifyFailure(new SourceError("403 Forbidden from https://x", 403)), {
+      kind: "http",
+      message: "403 Forbidden from https://x",
+      status: 403,
+    });
+    assert.equal(classifyFailure(new SourceError("Timed out fetching https://x")).kind, "timeout");
+    assert.equal(classifyFailure(new SourceError("getaddrinfo ENOTFOUND x")).kind, "network");
+  });
+
+  it("reports a vendor payload change as a parser failure with the real error", () => {
+    let thrown: unknown;
+    try {
+      JSON.parse("<html>not json</html>");
+    } catch (error) {
+      thrown = error;
+    }
+    const failure = classifyFailure(thrown);
+    assert.equal(failure.kind, "parser");
+    assert.match(failure.message, /^SyntaxError: /);
+    assert.equal(classifyFailure(new TypeError("Cannot read properties of undefined")).kind, "parser");
   });
 });

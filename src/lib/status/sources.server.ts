@@ -22,6 +22,7 @@ import type {
   Incident,
   ServiceId,
   ServiceSnapshot,
+  SourceFailure,
 } from "./types.ts";
 
 const STALE_MS = 14 * 24 * 60 * 60 * 1000;
@@ -124,6 +125,19 @@ function base(id: ServiceId, checkedAt: string, latencyMs: number): Omit<
   };
 }
 
+// SourceError is raised by http.ts for transport problems. Anything else that
+// escapes a collector (SyntaxError from JSON.parse, TypeError from a missing
+// field) means the vendor answered with a shape the collector does not expect.
+export function classifyFailure(error: unknown): SourceFailure {
+  if (error instanceof SourceError) {
+    if (error.status !== undefined) return { kind: "http", message: error.message, status: error.status };
+    if (error.message.startsWith("Timed out")) return { kind: "timeout", message: error.message };
+    return { kind: "network", message: error.message };
+  }
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return { kind: "parser", message };
+}
+
 function failed(id: ServiceId, started: number, error: unknown): ServiceSnapshot {
   const message = error instanceof SourceError ? error.message : "Official source did not respond.";
   return {
@@ -132,6 +146,7 @@ function failed(id: ServiceId, started: number, error: unknown): ServiceSnapshot
     summary: message,
     components: [],
     incidents: [],
+    failure: classifyFailure(error),
   };
 }
 
