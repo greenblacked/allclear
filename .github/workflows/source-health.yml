@@ -1,0 +1,40 @@
+name: Source health
+
+# Live canary for the vendor collectors. PR CI stays offline and
+# deterministic; this is the one place that calls the real vendor endpoints,
+# so a changed payload shape shows up as an issue instead of as a board that
+# quietly shows "Unknown".
+
+on:
+  schedule:
+    # Hourly, off the top of the hour when shared runners are busiest.
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-health
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+      # The collectors use only Node built-ins (fetch, TextDecoder), and the
+      # script runs on Node's own TypeScript stripping, so there is no
+      # `npm ci`: nothing from the lockfile executes in a job that can write
+      # issues.
+      - name: Probe vendor sources
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/ci/source-health.ts --issues
