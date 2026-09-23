@@ -3,7 +3,7 @@ import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-r
 import { useState } from "react";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "AllClear";
+const APP_NAME = "Status Bar";
 
 function RootDocument() {
   const [queryClient] = useState(

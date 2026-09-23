@@ -14,7 +14,7 @@ Include what you can of:
 - steps to reproduce, or a proof of concept
 - the impact you expect: what an attacker gains
 
-AllClear has a single maintainer, so responses are best-effort. You should get an acknowledgement within a few days. Fixes land on `main`, and you will be credited in the advisory unless you ask not to be.
+Status Bar has a single maintainer, so responses are best-effort. You should get an acknowledgement within a few days. Fixes land on `main`, and you will be credited in the advisory unless you ask not to be.
 
 ## Supported versions
 
@@ -26,13 +26,13 @@ In scope:
 
 - The application: the server functions in `src/lib/status/`, the vendor collectors and their parsing of untrusted vendor payloads, and the rendered board
 - The CI and automation in `.github/workflows/` and `scripts/ci/`, including anything that could let a pull request from a fork gain write access. `ci-triage.yml` runs with a write token by design and must never execute pull request code.
-- Dependency vulnerabilities that are actually reachable from AllClear's code
+- Dependency vulnerabilities that are actually reachable from Status Bar's code
 
 Out of scope:
 
 - The vendors' own status pages and APIs. Report problems with those to the vendor.
 - Findings that need an already-compromised maintainer account or machine
-- Missing hardening headers on a deployment AllClear does not operate. The repository does not yet ship a production deployment.
+- Missing hardening headers on a deployment Status Bar does not operate. The repository does not yet ship a production deployment.
 
 ## How the repository defends itself
 

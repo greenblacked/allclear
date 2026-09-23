@@ -1,4 +1,4 @@
-<h1 align="center">AllClear</h1>
+<h1 align="center">Status Bar</h1>
 
 <p align="center"><strong>Official sources. One board.</strong></p>
 
@@ -20,9 +20,9 @@
   <a href="#development">Development</a>
 </p>
 
-## Why AllClear
+## Why Status Bar
 
-When something breaks, the answer is spread across a dozen vendor dashboards, each with its own layout and vocabulary. Outage trackers are quicker, but they count user complaints, not what the vendor has confirmed. AllClear puts the official answers on one screen and holds itself to four rules:
+When something breaks, the answer is spread across a dozen vendor dashboards, each with its own layout and vocabulary. Outage trackers are quicker, but they count user complaints, not what the vendor has confirmed. Status Bar puts the official answers on one screen and holds itself to four rules:
 
 - **Official or nothing.** Every signal comes from the vendor's own status page, feed or public API. No crowd reports, no unofficial aggregators.
 - **Unknown beats a guess.** If a source times out or changes its format, its card says Unknown and why. Missing data never turns into an all clear.
@@ -33,7 +33,7 @@ When something breaks, the answer is spread across a dozen vendor dashboards, ea
 
 🟢 Operational · 🔧 Maintenance · 🟡 Degraded · 🔴 Outage · ❔ Unknown
 
-Fourteen services, each read from one official source. This table is the contract: if a source is not listed here, AllClear does not read it.
+Fourteen services, each read from one official source. This table is the contract: if a source is not listed here, Status Bar does not read it.
 
 | Group | Service | Official source |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ Fourteen services, each read from one official source. This table is the contrac
 
 ## How it decides
 
-Each vendor speaks its own dialect. AllClear translates all of them into five states:
+Each vendor speaks its own dialect. Status Bar translates all of them into five states:
 
 | State | Meaning |
 | --- | --- |
@@ -62,7 +62,7 @@ Each vendor speaks its own dialect. AllClear translates all of them into five st
 | 🔧 Maintenance | Scheduled work is in progress |
 | 🟡 Degraded | Partial impact, elevated errors, or thin coverage |
 | 🔴 Outage | Major or critical impact |
-| ❔ Unknown | The source timed out, returned an error, or sent data AllClear could not read |
+| ❔ Unknown | The source timed out, returned an error, or sent data Status Bar could not read |
 
 The overall card shows the worst state on the board: **All clear** when everything is Operational, **Outage** if anything is out, and **Attention** for everything in between.
 
@@ -142,7 +142,7 @@ The server cannot reach the vendors. The collectors run on the machine that serv
 
 <br>
 
-Not necessarily. Unknown means AllClear could not read that vendor's source: it timed out, returned an error, or changed its format. The card shows the reason. An hourly job in this repository calls every source and opens an issue when one stays unreadable.
+Not necessarily. Unknown means Status Bar could not read that vendor's source: it timed out, returned an error, or changed its format. The card shows the reason. An hourly job in this repository calls every source and opens an issue when one stays unreadable.
 
 </details>
 
@@ -160,7 +160,7 @@ Usually under three minutes old. Each board asks the server every two minutes, a
 
 <br>
 
-Valve's game-server status API needs an API key, and AllClear uses none. The public, official signals are Valve's Steam Datagram Relay config and the live player count, and the board reads the European relay network from them. Other regions are not collected.
+Valve's game-server status API needs an API key, and Status Bar uses none. The public, official signals are Valve's Steam Datagram Relay config and the live player count, and the board reads the European relay network from them. Other regions are not collected.
 
 </details>
 
@@ -174,7 +174,7 @@ The status page's JSON API sits behind a Cloudflare challenge, so the official R
 </details>
 
 <details>
-<summary><strong>Does AllClear store anything?</strong></summary>
+<summary><strong>Does Status Bar store anything?</strong></summary>
 
 <br>
 
@@ -231,7 +231,7 @@ Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md). Pl
 
 ## Disclaimer and license
 
-AllClear is not affiliated with Google, Amazon, Valve, Epic Games, Spotify, Apple, MikroTik, xAI, OpenAI, or Anthropic. Names and marks belong to their owners.
+Status Bar is not affiliated with Google, Amazon, Valve, Epic Games, Spotify, Apple, MikroTik, xAI, OpenAI, or Anthropic. Names and marks belong to their owners.
 
 Released under the MIT License. See [LICENSE](LICENSE).
 
