@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { awsEventActive, classifyFailure, grokItemActive, grokItemHealth, saysResolved } from "./sources.server.ts";
-import { SourceError } from "./http.ts";
+import { PayloadError, SourceError } from "./http.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 8, 22, 12, 0, 0);
@@ -112,5 +112,11 @@ describe("collector failure classification", () => {
     assert.equal(failure.kind, "parser");
     assert.match(failure.message, /^SyntaxError: /);
     assert.equal(classifyFailure(new TypeError("Cannot read properties of undefined")).kind, "parser");
+    // A collector's own "answered, but no usable data" check is a format
+    // change too, even though it carries no HTTP status.
+    assert.deepEqual(classifyFailure(new PayloadError("Grok feed returned no readable items.")), {
+      kind: "parser",
+      message: "Grok feed returned no readable items.",
+    });
   });
 });

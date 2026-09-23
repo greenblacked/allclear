@@ -8,7 +8,7 @@ import {
   parseMikrotikNewest,
   summarizeMikrotikChangelog,
 } from "./changelog.ts";
-import { fetchJson, fetchText, SourceError } from "./http.ts";
+import { fetchJson, fetchText, PayloadError, SourceError } from "./http.ts";
 import {
   googleImpact,
   overallSummary,
@@ -129,6 +129,7 @@ function base(id: ServiceId, checkedAt: string, latencyMs: number): Omit<
 // escapes a collector (SyntaxError from JSON.parse, TypeError from a missing
 // field) means the vendor answered with a shape the collector does not expect.
 export function classifyFailure(error: unknown): SourceFailure {
+  if (error instanceof PayloadError) return { kind: "parser", message: error.message };
   if (error instanceof SourceError) {
     if (error.status !== undefined) return { kind: "http", message: error.message, status: error.status };
     if (error.message.startsWith("Timed out")) return { kind: "timeout", message: error.message };
@@ -613,7 +614,7 @@ async function collectGrok(): Promise<ServiceSnapshot> {
     // parseRssItems only understands RSS 2.0 <item>. If x.ai moves to Atom
     // the parse yields nothing, and reporting that as "operational" would be
     // a confident all-clear built on no data. Unknown is the honest answer.
-    if (items.length === 0) throw new SourceError("Grok feed returned no readable items.");
+    if (items.length === 0) throw new PayloadError("Grok feed returned no readable items.");
     const now = Date.now();
     const active = items.filter((item) => grokItemActive(item, now));
     let health: Health = "operational";
@@ -668,13 +669,19 @@ async function collectMikrotik(): Promise<ServiceSnapshot> {
   const started = Date.now();
   try {
     const { value, ms } = await timed(async () => {
+      // Tell "nothing answered" apart from "something answered but did not
+      // parse": the second is a format change that needs a code fix.
+      let unparsed = 0;
       const channels = (
         await Promise.all(
           MIKROTIK_CHANNELS.map(async (channel) => {
             try {
               const { body } = await fetchText(`https://upgrade.mikrotik.com/routeros/${channel.file}`);
               const parsed = parseMikrotikNewest(body);
-              if (!parsed) return null;
+              if (!parsed) {
+                unparsed += 1;
+                return null;
+              }
               return { ...channel, ...parsed };
             } catch {
               return null;
@@ -682,7 +689,10 @@ async function collectMikrotik(): Promise<ServiceSnapshot> {
           }),
         )
       ).filter((channel): channel is NonNullable<typeof channel> => Boolean(channel));
-      if (!channels.length) throw new SourceError("MikroTik version channels did not respond.");
+      if (!channels.length) {
+        if (unparsed > 0) throw new PayloadError(`MikroTik answered ${unparsed} version channel(s) in an unrecognised format.`);
+        throw new SourceError("MikroTik version channels did not respond.");
+      }
       const stable = channels.find((channel) => channel.file === "NEWESTa7.stable");
       const newest = channels.reduce((current, channel) => {
         const currentTime = Date.parse(current.releasedAt ?? "") || 0;
@@ -736,7 +746,7 @@ async function collectAppleOs(): Promise<ServiceSnapshot> {
     const { value, ms } = await timed(() => fetchText("https://developer.apple.com/news/releases/rss/releases.rss"));
     const items = parseRssItems(value.body);
     const latest = latestAppleOsByFamily(items);
-    if (!latest.length) throw new SourceError("Apple OS release feed had no OS items.");
+    if (!latest.length) throw new PayloadError("Apple OS release feed had no OS items.");
 
     const components: ComponentHealth[] = latest.map((release) => ({
       name: release.family,

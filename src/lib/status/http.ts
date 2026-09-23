@@ -14,6 +14,16 @@ export class SourceError extends Error {
   }
 }
 
+// The vendor answered, but not with data the collector can use: an empty
+// feed, missing items, or no channel that parses. Unlike a transport failure,
+// this usually means the payload changed and the collector needs a fix.
+export class PayloadError extends SourceError {
+  constructor(message: string) {
+    super(message);
+    this.name = "PayloadError";
+  }
+}
+
 export async function fetchText(
   url: string,
   init: RequestInit & { timeoutMs?: number; binary?: boolean } = {},
