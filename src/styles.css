@@ -10,7 +10,8 @@
   --color-surface-2: color-mix(in oklab, white 14%, transparent);
   --color-fg: #f4f6fa;
   --color-muted: color-mix(in oklab, var(--color-fg) 68%, transparent);
-  --color-subtle: color-mix(in oklab, var(--color-fg) 46%, transparent);
+  /* 50%: 46% measured 4.42:1 on --color-bg, under the 4.5:1 WCAG AA floor. */
+  --color-subtle: color-mix(in oklab, var(--color-fg) 50%, transparent);
   --color-border: color-mix(in oklab, white 16%, transparent);
   --color-accent: #e8eef6;
   --color-ok: #7dcea0;
@@ -40,6 +41,11 @@
   --motion-quick: 150ms;
   --motion-fast: 250ms;
   --glass-blur: 40px;
+}
+
+/* Native scrollbars and form controls render dark to match the page. */
+:root {
+  color-scheme: dark;
 }
 
 @layer base {

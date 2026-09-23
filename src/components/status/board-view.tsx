@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { fetchStatusBoard, refreshStatusBoard } from "@/lib/status/board";
 import { CATEGORIES } from "@/lib/status/catalog";
 import { overallHealth } from "@/lib/status/diff";
-import { healthLabel } from "@/lib/status/health";
+import { attentionBreakdown, healthLabel } from "@/lib/status/health";
 import {
   emptyPulseStore,
   loadPulseStore,
@@ -20,7 +20,7 @@ import {
   syncPulse,
   type PulseStore,
 } from "@/lib/status/pulse";
-import { formatCountdown, lastPulseAt, LIVE_REFETCH_MS, nextPulseAt } from "@/lib/status/schedule";
+import { lastPulseAt, LIVE_REFETCH_MS } from "@/lib/status/schedule";
 import type { BoardSnapshot, CategoryId, Health } from "@/lib/status/types";
 import { cn } from "@/lib/utils";
 
@@ -65,7 +65,6 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
     ),
   );
 
-  const remaining = now > 0 ? Math.max(0, nextPulseAt(now) - now) : 0;
   const slot = now > 0 ? lastPulseAt(now) : null;
 
   useEffect(() => {
@@ -141,12 +140,16 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
 
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <OverallCard overall={overall} issueCount={issueCount} total={board.services.length} />
-          <StatCard label="Operational" value={board.counts.operational} tone="operational" />
-          <StatCard label="Attention" value={issueCount} tone={issueCount ? "degraded" : "operational"} />
           <StatCard
-            label="Next update"
-            value={now > 0 ? formatCountdown(remaining) : "—"}
-            detail="Every 2 minutes"
+            label="Operational"
+            value={board.counts.operational}
+            detail={`of ${board.services.length} services`}
+          />
+          <StatCard label="Attention" value={issueCount} detail={attentionBreakdown(board.counts)} />
+          <StatCard
+            label="Sources"
+            value={`${board.services.length - board.counts.unknown}/${board.services.length}`}
+            detail={board.counts.unknown ? `${board.counts.unknown} not readable` : "all readable"}
           />
         </section>
 
@@ -195,7 +198,10 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
         ) : null}
 
         <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
-          <div>
+          <section aria-labelledby="services-heading">
+            <h2 id="services-heading" className="sr-only">
+              Services
+            </h2>
             {fetching && !board.services.length ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 {Array.from({ length: 6 }).map((_, index) => (
@@ -219,7 +225,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
                 ))}
               </div>
             )}
-          </div>
+          </section>
           <UpdateFeed pulses={pulseStore.pulses} />
         </div>
 
@@ -264,26 +270,12 @@ function OverallCard({
   );
 }
 
-function StatCard({
-  label,
-  value,
-  tone,
-  detail,
-}: {
-  label: string;
-  value: number | string;
-  tone?: Health;
-  detail?: string;
-}) {
+function StatCard({ label, value, detail }: { label: string; value: number | string; detail: string }) {
   return (
     <div className="glass rounded-3xl p-4">
       <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-subtle">{label}</p>
       <p className="mt-3 font-display text-2xl tabular-nums tracking-[-0.03em]">{value}</p>
-      {tone ? (
-        <p className="mt-2 font-mono text-[11px] text-subtle">{healthLabel(tone)}</p>
-      ) : (
-        <p className="mt-2 font-mono text-[11px] tabular-nums text-subtle">{detail}</p>
-      )}
+      <p className="mt-2 font-mono text-[11px] tabular-nums text-subtle">{detail}</p>
     </div>
   );
 }

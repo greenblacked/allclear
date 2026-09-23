@@ -24,6 +24,17 @@ export class PayloadError extends SourceError {
   }
 }
 
+// Failure messages end up on a card, so name the vendor host rather than the
+// full URL: a long path cannot fit a card, and the card already links the
+// vendor's page. `source-health` logs carry the same text.
+function sourceHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
 export async function fetchText(
   url: string,
   init: RequestInit & { timeoutMs?: number; binary?: boolean } = {},
@@ -45,7 +56,7 @@ export async function fetchText(
     const bytes = await response.arrayBuffer();
     const contentType = response.headers.get("content-type") ?? "";
     if (!response.ok) {
-      throw new SourceError(`${response.status} ${response.statusText} from ${url}`, response.status);
+      throw new SourceError(`${response.status} ${response.statusText} from ${sourceHost(url)}`, response.status);
     }
     let body: string;
     if (binary) {
@@ -64,9 +75,9 @@ export async function fetchText(
   } catch (error) {
     if (error instanceof SourceError) throw error;
     if (error instanceof Error && error.name === "AbortError") {
-      throw new SourceError(`Timed out fetching ${url}`);
+      throw new SourceError(`Timed out fetching ${sourceHost(url)}`);
     }
-    throw new SourceError(error instanceof Error ? error.message : `Failed to fetch ${url}`);
+    throw new SourceError(error instanceof Error ? error.message : `Failed to fetch ${sourceHost(url)}`);
   } finally {
     clearTimeout(timer);
   }
