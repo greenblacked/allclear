@@ -1,75 +1,96 @@
-# AllClear
+<h1 align="center">AllClear</h1>
 
-[![CI](https://github.com/greenblacked/status-page/actions/workflows/ci.yml/badge.svg)](https://github.com/greenblacked/status-page/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/greenblacked/status-page/actions/workflows/codeql.yml/badge.svg)](https://github.com/greenblacked/status-page/actions/workflows/codeql.yml)
+<p align="center"><strong>Official sources. One board.</strong></p>
 
-A live status board for cloud, gaming, platform and AI services, built only from each vendor's official status source.
+<p align="center">
+  Live status for the cloud, gaming, platform and AI services people actually wait on,<br>
+  read straight from each vendor and never from rumor.
+</p>
 
-AllClear puts fourteen services on one screen, maps every vendor's wording onto the same five health states, and refreshes every two minutes. It needs no API keys, no accounts and no configuration.
+<p align="center">
+  <a href="https://github.com/greenblacked/status-page/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/greenblacked/status-page/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/greenblacked/status-page/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/greenblacked/status-page/actions/workflows/codeql.yml/badge.svg"></a>
+</p>
 
-## Contents
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#what-it-watches">What it watches</a> ·
+  <a href="#how-it-decides">How it decides</a> ·
+  <a href="#faq">FAQ</a> ·
+  <a href="#development">Development</a>
+</p>
 
-- [Why](#why)
-- [What you get](#what-you-get)
-- [Sources](#sources)
-- [Getting started](#getting-started)
-- [Development](#development)
-- [Security](#security)
-- [Disclaimer and license](#disclaimer-and-license)
-- [Contributing](#contributing)
+## Why AllClear
 
-## Why
+When something breaks, the answer is spread across a dozen vendor dashboards, each with its own layout and vocabulary. Outage trackers are quicker, but they count user complaints, not what the vendor has confirmed. AllClear puts the official answers on one screen and holds itself to four rules:
 
-When something breaks, the answer is spread across a dozen vendor dashboards, each with its own layout and vocabulary. Third-party outage trackers are quicker to check, but they report user complaints, not what the vendor has confirmed.
+- **Official or nothing.** Every signal comes from the vendor's own status page, feed or public API. No crowd reports, no unofficial aggregators.
+- **Unknown beats a guess.** If a source times out or changes its format, its card says Unknown and why. Missing data never turns into an all clear.
+- **Zero setup.** No API keys, no accounts, no environment variables.
+- **The vendor has the last word.** Every card links to the vendor's own page, which stays the source of truth.
 
-AllClear reads the official sources, normalizes them, and shows them side by side. It never uses unofficial aggregators.
+## What it watches
 
-## What you get
+🟢 Operational · 🔧 Maintenance · 🟡 Degraded · 🔴 Outage · ❔ Unknown
 
-| Group | Services |
-| --- | --- |
-| Cloud | Google Cloud, AWS |
-| Gaming | Steam, CS2 Europe, Epic Games, Fortnite |
-| Platforms | Spotify, Apple, Android / Google Play |
-| AI | Grok, ChatGPT, Claude |
-| Updates | MikroTik RouterOS, Apple OS releases |
+Fourteen services, each read from one official source. This table is the contract: if a source is not listed here, AllClear does not read it.
 
-Every service gets one of five states:
+| Group | Service | Official source |
+| --- | --- | --- |
+| Cloud | Google Cloud | [status.cloud.google.com](https://status.cloud.google.com/) |
+| Cloud | AWS | [AWS Health Dashboard](https://health.aws.amazon.com/health/status) |
+| Gaming | Steam | [Steam Web API](https://api.steampowered.com/) and Store |
+| Gaming | CS2 Europe | Valve SDR config for app `730`, plus the live player count |
+| Gaming | Epic Games | [status.epicgames.com](https://status.epicgames.com/) |
+| Gaming | Fortnite | [status.epicgames.com](https://status.epicgames.com/), Fortnite components only |
+| Platforms | Spotify | [spotify.statuspage.io](https://spotify.statuspage.io/) |
+| Platforms | Apple | [Apple System Status](https://www.apple.com/support/systemstatus/) |
+| Platforms | Android / Google Play | [Play Status](https://status.play.google.com/summary) |
+| AI | Grok | [status.x.ai](https://status.x.ai/) |
+| AI | ChatGPT | [status.openai.com](https://status.openai.com/) |
+| AI | Claude | [status.claude.com](https://status.claude.com/) |
+| Updates | MikroTik RouterOS | [MikroTik changelogs](https://mikrotik.com/download/changelogs) |
+| Updates | Apple OS | [Apple Developer Releases](https://developer.apple.com/news/releases/) |
+
+## How it decides
+
+Each vendor speaks its own dialect. AllClear translates all of them into five states:
 
 | State | Meaning |
 | --- | --- |
-| Operational | The vendor reports no active incident |
-| Maintenance | Scheduled work is in progress |
-| Degraded | Partial impact, elevated errors, or thin coverage |
-| Outage | Major or critical impact |
-| Unknown | The official source timed out, returned an error, or sent data AllClear could not read |
+| 🟢 Operational | The vendor reports no active incident |
+| 🔧 Maintenance | Scheduled work is in progress |
+| 🟡 Degraded | Partial impact, elevated errors, or thin coverage |
+| 🔴 Outage | Major or critical impact |
+| ❔ Unknown | The source timed out, returned an error, or sent data AllClear could not read |
 
-The overall card shows the worst state on the board: **All clear** when everything is Operational, **Outage** if any service is out, and **Attention** for anything in between.
+The overall card shows the worst state on the board: **All clear** when everything is Operational, **Outage** if anything is out, and **Attention** for everything in between.
 
-## Sources
+The two Updates services track releases, not incidents. They stay Operational and highlight any channel or OS released in the last 14 days.
 
-The source list is the contract: if a row is not here, AllClear does not read it.
+<details>
+<summary><strong>The rule behind every card</strong></summary>
 
-| Service | Official source | How it is read |
-| --- | --- | --- |
-| Google Cloud | [status.cloud.google.com](https://status.cloud.google.com/) | `incidents.json`; only incidents without an end time count |
-| AWS | [AWS Health](https://health.aws.amazon.com/health/status) | Public current events. An event counts while it is unresolved and updated within the last 14 days. Single-region or single-zone events are Degraded, not Outage |
-| Steam | [Steam Web API](https://api.steampowered.com/) and Store | `GetServerInfo` plus the Store featured API. Both answering is Operational, one is Degraded, neither is Outage |
-| CS2 Europe | Valve SDR config, app `730` | European relay points of presence plus the live player count. Degraded when fewer than 3, or fewer than 40%, of European pops publish relays |
-| Epic Games | [status.epicgames.com](https://status.epicgames.com/) | Statuspage summary, worst component, excluding Fortnite components |
-| Fortnite | [status.epicgames.com](https://status.epicgames.com/) | Same page, only components whose name contains "Fortnite" |
-| Spotify | [spotify.statuspage.io](https://spotify.statuspage.io/) | Statuspage summary indicator |
-| Apple | [System Status](https://www.apple.com/support/systemstatus/) | `system_status_en_US.js`, services with an active event |
-| Android / Play | [Play Status](https://status.play.google.com/summary) | Play `incidents.json`; only incidents without an end time count |
-| Grok | [status.x.ai](https://status.x.ai/) | RSS `feed.xml`, because the JSON API sits behind Cloudflare. An item counts when it is not resolved and was published within the last 14 days |
-| ChatGPT | [status.openai.com](https://status.openai.com/) | Statuspage summary indicator |
-| Claude | [status.claude.com](https://status.claude.com/) | Statuspage summary indicator |
-| MikroTik RouterOS | [MikroTik changelogs](https://mikrotik.com/download/changelogs) | The official `NEWEST*` files for RouterOS 7 stable, long-term, testing and development and RouterOS 6 long-term, plus the newest version's `CHANGELOG` |
-| Apple OS | [Apple Developer Releases](https://developer.apple.com/news/releases/) | Releases RSS, latest version of iOS, iPadOS, macOS, watchOS, tvOS and visionOS |
+<br>
 
-The two Updates services track releases, not incidents. They stay Operational, and a channel or OS released in the last 14 days is highlighted on its card.
+| Service | How it is read |
+| --- | --- |
+| Google Cloud | `incidents.json`; only incidents without an end time count |
+| AWS | Public current events. An event counts while it is unresolved and updated within the last 14 days. Single-region or single-zone events are Degraded, not Outage |
+| Steam | `GetServerInfo` plus the Store featured API. Both answering is Operational, one is Degraded, neither is Outage |
+| CS2 Europe | European relay points of presence. Degraded when fewer than 3, or fewer than 40%, of them publish relays |
+| Epic Games | Statuspage summary, worst component, excluding Fortnite components |
+| Fortnite | Same page, only components whose name contains "Fortnite" |
+| Spotify, ChatGPT, Claude | Statuspage summary indicator |
+| Apple | `system_status_en_US.js`, services with an active event |
+| Android / Google Play | Play `incidents.json`; only incidents without an end time count |
+| Grok | RSS `feed.xml`. An item counts when it is not resolved and was published within the last 14 days |
+| MikroTik RouterOS | The official `NEWEST*` files for RouterOS 7 stable, long-term, testing and development and RouterOS 6 long-term, plus the newest version's `CHANGELOG` |
+| Apple OS | Releases RSS, latest version of iOS, iPadOS, macOS, watchOS, tvOS and visionOS |
 
-### How a snapshot is built
+</details>
+
+### From vendor to board
 
 ```mermaid
 flowchart LR
@@ -81,63 +102,106 @@ flowchart LR
   collectors --> snapshot
 ```
 
-Collection runs on the server, so the browser never has to deal with vendor CORS, and every open board shares the same cached snapshot. Each collector fails on its own: a source that times out or changes its format shows as Unknown with the reason on its card, and the rest of the board is unaffected.
+Collection runs on the server, so the browser never deals with vendor CORS and every open board shares one cached snapshot. Each collector fails on its own: one broken source costs one card, never the board.
 
-## Getting started
+## Quick start
 
-### Prerequisites
-
-- Node 22.13.0 (pinned in `.nvmrc`; `engines` allows 22.13 up to, but not including, 25)
-- npm 11.9.0 (pinned in `packageManager`)
-- Outbound HTTPS from the machine running the server to the vendor hosts in the [Sources](#sources) table
-
-No API keys, accounts or environment variables are needed.
-
-### Run it locally
+You need Node 22.13.0 (pinned in `.nvmrc`), npm 11.9.0, and outbound HTTPS to the vendors above.
 
 ```bash
 git clone https://github.com/greenblacked/status-page.git
 cd status-page
-nvm use            # or install Node 22.13.0 another way
+nvm use
 npm ci
 npm run dev
 ```
 
-Open the local URL that Vite prints. The first load collects all fourteen sources, which can take a few seconds.
+Open the local URL that Vite prints. The first load reads all fourteen sources, which can take a few seconds.
 
-### Using the board
+**On the board:**
 
-- Scan the overall card, then the Operational and Attention counts next to it. Attention counts every service that is not Operational
 - Filter by Cloud, Gaming, Platforms, AI or Updates, search by name, or switch on **Issues only**
-- The board pulls a new snapshot every two minutes. The countdown and the **Board log** run on two-minute slots of the clock
-- Read the Board log for what changed between slots. It lives in your browser and keeps the last two hours
-- Press Refresh to pull fresh data from every vendor now instead of waiting
-- Open the vendor's own status page from any card
+- Watch the countdown: the board pulls a new snapshot every two minutes
+- Read the **Board log** to see what changed between two-minute slots
+- Press **Refresh** to skip the cache and ask every vendor right now
+- Open any card's vendor page for the full story
 
-AllClear is an aggregator. The vendor's page is always the source of truth.
+## FAQ
 
-### Troubleshooting
+<details>
+<summary><strong>Every card says Unknown. What is wrong?</strong></summary>
 
-| Symptom | Likely cause |
-| --- | --- |
-| Every card shows Unknown | The server cannot reach the vendor hosts. Check outbound HTTPS, proxies and firewalls on the machine running `npm run dev` |
-| One card shows Unknown | That vendor timed out or changed its format. The card shows the reason; the hourly source-health check opens an issue if it persists |
-| The Board log stays empty | It fills one entry per two-minute slot, and it needs browser storage. Private windows or blocked site data keep it empty |
-| `npm ci` prints an `EBADENGINE` warning | The active Node version is outside `>=22.13.0 <25`. Run `nvm use` |
+<br>
+
+The server cannot reach the vendors. The collectors run on the machine that serves the board, so check its outbound HTTPS, proxy and firewall settings.
+
+</details>
+
+<details>
+<summary><strong>One card says Unknown. Is the vendor down?</strong></summary>
+
+<br>
+
+Not necessarily. Unknown means AllClear could not read that vendor's source: it timed out, returned an error, or changed its format. The card shows the reason. An hourly job in this repository calls every source and opens an issue when one stays unreadable.
+
+</details>
+
+<details>
+<summary><strong>How fresh is the data?</strong></summary>
+
+<br>
+
+Usually under three minutes old. Each board asks the server every two minutes, and the server reuses a snapshot for up to 45 seconds so that many open boards share one set of vendor requests. **Refresh** skips the cache and asks every vendor at once.
+
+</details>
+
+<details>
+<summary><strong>Why only Europe for CS2?</strong></summary>
+
+<br>
+
+Valve's game-server status API needs an API key, and AllClear uses none. The public, official signals are Valve's Steam Datagram Relay config and the live player count, and the board reads the European relay network from them. Other regions are not collected.
+
+</details>
+
+<details>
+<summary><strong>Why does Grok come from an RSS feed?</strong></summary>
+
+<br>
+
+The status page's JSON API sits behind a Cloudflare challenge, so the official RSS feed is the readable source. It carries the whole incident history, which is why only items from the last 14 days count.
+
+</details>
+
+<details>
+<summary><strong>Does AllClear store anything?</strong></summary>
+
+<br>
+
+The server holds only the latest snapshot, in memory, and reuses it for up to 45 seconds. Nothing is written to disk or a database. The Board log lives in your browser's local storage and keeps the last two hours. Private windows or blocked site data leave it empty.
+
+</details>
+
+<details>
+<summary><strong>Is there a hosted version?</strong></summary>
+
+<br>
+
+Not yet. `npm run build` produces a Fetch-style server handler in `dist/server/server.js`, and the repository deliberately does not pick a hosting adapter. `npm run preview` is a smoke test of that build, not a production host.
+
+</details>
 
 ## Development
 
-React 19 on TanStack Start, styled with Tailwind v4, tested with Vitest.
+React 19 on TanStack Start, Tailwind v4, Vitest, TypeScript in strict mode.
 
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Development server with hot reload |
-| `npm run typecheck` | TypeScript in strict mode, no emit |
-| `npm test` | Unit tests |
+| `npm run typecheck` | Type-check without emitting |
+| `npm test` | Unit tests, fully offline |
 | `npm run build` | Production build into `dist/` |
-| `npm run preview` | Serves the built output for a smoke test |
-
-### Project layout
+| `npm run preview` | Serve the build for a smoke test |
 
 ```text
 src/lib/status/           # catalog, health model, collectors, cache and schedule
@@ -148,41 +212,26 @@ scripts/ci/               # checks that CI and contributors run the same way
 docs/                     # commit and README conventions
 ```
 
-### Checks
-
-These need no install, and CI runs the same commands:
+The repository checks need no install, and CI runs the same commands:
 
 ```bash
-./scripts/ci/hygiene.sh                   # line endings, whitespace, final newline, no `any`, no raw hex in JSX
+./scripts/ci/hygiene.sh                   # line endings, whitespace, no `any`, no raw hex in JSX
 ./scripts/ci/links.sh                     # relative links in the Markdown docs
 ./scripts/ci/commits.sh origin/main..HEAD # Conventional Commits
+node --experimental-strip-types scripts/ci/source-health.ts   # the one check that calls real vendors
 ```
 
-The unit tests cover board diffing, the two-minute schedule, changelog parsing, the server cache, the collectors' decision rules, and both repository bots. They never call a vendor. To check the real vendor endpoints:
+Every pull request runs CI on the pinned Node and on Node 24, plus CodeQL and dependency review. A triage bot explains failed checks in one PR comment, and the hourly source-health job watches the real endpoints. [.github/workflows/README.md](.github/workflows/README.md) covers each workflow.
 
-```bash
-node --experimental-strip-types scripts/ci/source-health.ts
-```
-
-### CI and automation
-
-Every pull request runs CI on the pinned Node and on Node 24, plus CodeQL and dependency review. Two bots run alongside: one explains failed PR checks in a single comment, and an hourly job opens an issue when a collector can no longer read its source. [.github/workflows/README.md](.github/workflows/README.md) describes each workflow.
-
-### Adding a service
-
-Add a catalog entry in `src/lib/status/catalog.ts` and a collector in `src/lib/status/sources.server.ts`. Read only an official machine-readable source, map it onto the five states, and add its row to the [Sources](#sources) table in the same commit. [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-service) has the full checklist.
-
-### Deployment
-
-There is no production deployment yet. `npm run build` produces a Fetch-style handler in `dist/server/server.js`, and the repository deliberately does not pick a deployment adapter. `npm run preview` is a smoke test of that build, not a production host.
+**Adding a service:** add a catalog entry in `src/lib/status/catalog.ts` and a collector in `src/lib/status/sources.server.ts`, read only an official machine-readable source, map it onto the five states, and add it to [What it watches](#what-it-watches) in the same commit. [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-service) has the full checklist.
 
 ## Security
 
-Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md). Do not open a public issue.
+Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md). Please do not open a public issue.
 
 ## Disclaimer and license
 
-Not affiliated with Google, Amazon, Valve, Epic Games, Spotify, Apple, MikroTik, xAI, OpenAI, or Anthropic. Names and marks belong to their owners.
+AllClear is not affiliated with Google, Amazon, Valve, Epic Games, Spotify, Apple, MikroTik, xAI, OpenAI, or Anthropic. Names and marks belong to their owners.
 
 Released under the MIT License. See [LICENSE](LICENSE).
 
