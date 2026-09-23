@@ -1,0 +1,91 @@
+# Runs this repository's checks inside the shared CI images from
+# https://github.com/greenblacked/github-base-images, so a local run uses the
+# same toolchain a container job would.
+#
+#   docker compose run --rm node22        # Node 22 line: install, typecheck, test, build, repo checks
+#   docker compose run --rm node24        # the same on the Node 24 line
+#   docker compose up preview             # serve the built board on http://127.0.0.1:4173
+#   docker compose run --rm security      # trivy (HIGH/CRITICAL) and gitleaks over the repository
+#
+# The images are public, so pulls are anonymous. Tags are the rolling
+# bookworm-v1 line; set CI_NODE22_IMAGE, CI_NODE24_IMAGE or CI_SECURITY_IMAGE to
+# an @sha256 digest to pin one.
+
+name: status-bar
+
+x-node: &node
+  working_dir: /workspace
+  command: ["bash", "scripts/ci/container-checks.sh", "verify"]
+  environment:
+    # The repository is owned by the host user and the container runs as root,
+    # so git refuses to read it without this. Scoped to /workspace, no global
+    # config is written.
+    GIT_CONFIG_COUNT: "1"
+    GIT_CONFIG_KEY_0: safe.directory
+    GIT_CONFIG_VALUE_0: /workspace
+
+services:
+  node22:
+    <<: *node
+    image: ${CI_NODE22_IMAGE:-ghcr.io/greenblacked/ci-node22:bookworm-v1}
+    volumes:
+      - .:/workspace
+      # node_modules and dist stay inside the container: Linux-built native
+      # packages must never overwrite a macOS or Windows host install.
+      - node22-modules:/workspace/node_modules
+      - type: tmpfs
+        target: /workspace/dist
+
+  node24:
+    <<: *node
+    image: ${CI_NODE24_IMAGE:-ghcr.io/greenblacked/ci-node24:bookworm-v1}
+    volumes:
+      - .:/workspace
+      - node24-modules:/workspace/node_modules
+      - type: tmpfs
+        target: /workspace/dist
+
+  preview:
+    <<: *node
+    profiles: [preview]
+    image: ${CI_NODE22_IMAGE:-ghcr.io/greenblacked/ci-node22:bookworm-v1}
+    command: ["bash", "scripts/ci/container-checks.sh", "preview"]
+    ports:
+      - "127.0.0.1:4173:4173"
+    volumes:
+      - .:/workspace
+      - preview-modules:/workspace/node_modules
+      - type: tmpfs
+        target: /workspace/dist
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "5", "-o", "/dev/null", "http://127.0.0.1:4173/"]
+      interval: 10s
+      timeout: 6s
+      retries: 3
+      start_period: 90s
+
+  security:
+    profiles: [security]
+    image: ${CI_SECURITY_IMAGE:-ghcr.io/greenblacked/ci-security:bookworm-v1}
+    working_dir: /workspace
+    environment:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: /workspace
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        trivy fs --cache-dir /cache/trivy --scanners vuln,misconfig --severity HIGH,CRITICAL --exit-code 1 --skip-dirs node_modules .
+        gitleaks git --redact --exit-code 1 .
+    volumes:
+      - .:/workspace:ro
+      # trivy downloads its vulnerability database on first run; keep it.
+      - trivy-cache:/cache
+
+volumes:
+  node22-modules:
+  node24-modules:
+  preview-modules:
+  trivy-cache:
