@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { BoardView } from "@/components/status/board-view";
-import { fetchStatusBoard } from "@/lib/status/board";
+import { loadStatusBoardForPage } from "@/lib/status/board";
 
 export const Route = createFileRoute("/")({
-  loader: () => fetchStatusBoard(),
+  loader: () => loadStatusBoardForPage(),
   staleTime: Infinity,
   shouldReload: false,
   component: Home,

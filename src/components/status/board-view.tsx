@@ -20,7 +20,7 @@ import {
   syncPulse,
   type PulseStore,
 } from "@/lib/status/pulse";
-import { lastPulseAt, LIVE_REFETCH_MS } from "@/lib/status/schedule";
+import { CACHE_TTL_MS, lastPulseAt, LIVE_REFETCH_MS } from "@/lib/status/schedule";
 import type { BoardSnapshot, CategoryId, Health } from "@/lib/status/types";
 import { cn } from "@/lib/utils";
 
@@ -48,12 +48,16 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
     // scaled with the number of viewers. Forcing is for the Refresh button.
     queryFn: () => fetchStatusBoard(),
     initialData: initial,
+    // The page may have rendered from a snapshot past the server TTL (see
+    // loadStatusBoardForPage). Dating the initial data by when it was
+    // collected makes that one case refetch on mount; a fresh render does not.
+    initialDataUpdatedAt: Date.parse(initial.generatedAt),
     refetchInterval: LIVE_REFETCH_MS,
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    refetchOnMount: false,
-    staleTime: LIVE_REFETCH_MS,
+    refetchOnMount: true,
+    staleTime: CACHE_TTL_MS,
   });
 
   const board = boardQuery.data ?? initial;

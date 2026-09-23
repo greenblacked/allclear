@@ -123,7 +123,7 @@ Open the local URL that Vite prints. The first load reads all fourteen sources, 
 - Filter by Cloud, Gaming, Platforms, AI or Updates, search by name, or switch on **Issues only**
 - Watch the countdown: the board pulls a new snapshot every two minutes
 - Read the **Board log** to see what changed between two-minute slots
-- Press **Refresh** to skip the cache and ask every vendor right now
+- Press **Refresh** to skip the cache and ask every vendor right now. Presses within 15 seconds of the last check reuse it
 - Open any card's vendor page for the full story
 
 ## FAQ
@@ -142,7 +142,7 @@ The server cannot reach the vendors. The collectors run on the machine that serv
 
 <br>
 
-Not necessarily. Unknown means Status Bar could not read that vendor's source: it timed out, returned an error, or changed its format. The card shows the reason. An hourly job in this repository calls every source and opens an issue when one stays unreadable.
+Not necessarily. Unknown means Status Bar could not read that vendor's source: it timed out, returned an error, or changed its format. The card shows the reason, and the server logs one `collector_failed` JSON line with the service, the kind of failure and the vendor host. An hourly job in this repository calls every source and opens an issue when one stays unreadable.
 
 </details>
 
@@ -151,7 +151,9 @@ Not necessarily. Unknown means Status Bar could not read that vendor's source: i
 
 <br>
 
-Usually under three minutes old. Each board asks the server every two minutes, and the server reuses a snapshot for up to 45 seconds so that many open boards share one set of vendor requests. **Refresh** skips the cache and asks every vendor at once.
+Usually under three minutes old. Each board asks the server every two minutes, and the server reuses a snapshot for up to 45 seconds so that many open boards share one set of vendor requests. **Refresh** skips the cache and asks every vendor at once, unless the last check was under 15 seconds ago.
+
+Opening the page never waits on the slowest vendor: if the cached snapshot expired within the last 75 seconds, the page renders from it, the server collects a new one behind it, and the board fetches that one straight away.
 
 </details>
 

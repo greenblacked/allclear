@@ -141,13 +141,21 @@ export function classifyFailure(error: unknown): SourceFailure {
 
 function failed(id: ServiceId, started: number, error: unknown): ServiceSnapshot {
   const message = error instanceof SourceError ? error.message : "Official source did not respond.";
+  const failure = classifyFailure(error);
+  const latencyMs = Date.now() - started;
+  // One JSON line per failed collector, so a host's log shows which vendor
+  // broke and how without anyone watching the board. No payloads, no URLs
+  // beyond the vendor host already in the message.
+  console.warn(
+    JSON.stringify({ event: "collector_failed", service: id, kind: failure.kind, status: failure.status, message: failure.message, latencyMs }),
+  );
   return {
-    ...base(id, new Date().toISOString(), Date.now() - started),
+    ...base(id, new Date().toISOString(), latencyMs),
     health: "unknown",
     summary: message,
     components: [],
     incidents: [],
-    failure: classifyFailure(error),
+    failure,
   };
 }
 
