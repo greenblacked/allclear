@@ -91,7 +91,7 @@ These need no install, and CI runs them with the same commands:
 
 Covered by tests: board diffing, the two-minute pulse, changelog parsing, the server TTL cache, and the pure decision rules inside the vendor collectors (Grok feed staleness, AWS event activity). The collectors' network paths are not covered, and neither is `http.ts`.
 
-Pull requests run dependency review and fail on high or critical findings. Repository administrators must keep GitHub's dependency graph enabled; if that GitHub feature is unavailable, the check fails explicitly rather than skipping review.
+Pull requests run dependency review and fail on high or critical findings. The review needs GitHub's **Dependency graph** setting (Settings → Code security and analysis). When that setting is off, the job passes but posts a warning and a step summary saying the dependency changes were not reviewed. It fails, never skips, if its token cannot read the repository or the API answers anything unexpected.
 
 ## Git and authorship
 
