@@ -1,0 +1,42 @@
+# Security policy
+
+## Reporting a vulnerability
+
+Please report vulnerabilities privately through GitHub:
+**[Report a vulnerability](https://github.com/greenblacked/status-page/security/advisories/new)**
+(Security tab → Advisories → Report a vulnerability).
+
+Do not open a public issue, pull request, or discussion for a suspected vulnerability.
+
+Include what you can of:
+
+- the affected file, route, or workflow
+- steps to reproduce, or a proof of concept
+- the impact you expect: what an attacker gains
+
+AllClear has a single maintainer, so responses are best-effort. You should get an acknowledgement within a few days. Fixes land on `main`, and you will be credited in the advisory unless you ask not to be.
+
+## Supported versions
+
+Only the current `main` branch is supported. There are no release branches.
+
+## Scope
+
+In scope:
+
+- The application: the server functions in `src/lib/status/`, the vendor collectors and their parsing of untrusted vendor payloads, and the rendered board
+- The CI and automation in `.github/workflows/` and `scripts/ci/`, including anything that could let a pull request from a fork gain write access. `ci-triage.yml` runs with a write token by design and must never execute pull request code.
+- Dependency vulnerabilities that are actually reachable from AllClear's code
+
+Out of scope:
+
+- The vendors' own status pages and APIs. Report problems with those to the vendor.
+- Findings that need an already-compromised maintainer account or machine
+- Missing hardening headers on a deployment AllClear does not operate. The repository does not yet ship a production deployment.
+
+## How the repository defends itself
+
+- Every third-party Action is pinned to a full commit SHA, and the actionlint image is pinned by digest.
+- Workflows default to read-only tokens. Jobs that write request only the scopes they need.
+- CodeQL and dependency review run on every pull request into `main`.
+- The live vendor checks in `source-health.yml` do not install npm dependencies, so no third-party package code runs in a job that can write issues.

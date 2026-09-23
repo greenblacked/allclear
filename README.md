@@ -61,7 +61,7 @@ src/components/status/    # board UI
 src/routes/               # TanStack Start routes
 docs/                     # commit and README conventions
 scripts/ci/               # checks that CI and contributors run identically
-.github/workflows/        # CI and CodeQL
+.github/workflows/        # CI, security scans and the triage and source-health bots
 ```
 
 ## Development
@@ -89,7 +89,15 @@ These need no install, and CI runs them with the same commands:
 ./scripts/ci/commits.sh origin/main..HEAD # Conventional Commits
 ```
 
-Covered by tests: board diffing, the two-minute pulse, changelog parsing, the server TTL cache, and the pure decision rules inside the vendor collectors (Grok feed staleness, AWS event activity). The collectors' network paths are not covered, and neither is `http.ts`.
+Covered by tests: board diffing, the two-minute pulse, changelog parsing, the server TTL cache, the pure decision rules inside the vendor collectors (Grok feed staleness, AWS event activity, failure classification), and the triage and source-health bots against fake GitHub APIs. PR CI stays offline, so the collectors' live network paths are exercised only by the hourly source-health run.
+
+Two bots run alongside CI. `ci-triage.yml` keeps one comment on each failing pull request that names the failed job, step and likely cause. `source-health.yml` calls the real vendor endpoints every hour and opens an issue when a collector can no longer read its source, for example when a vendor changes its payload. It closes that issue on recovery. To run the same live check locally:
+
+```bash
+node --experimental-strip-types scripts/ci/source-health.ts
+```
+
+Security reports go through [SECURITY.md](SECURITY.md).
 
 Pull requests run dependency review and fail on high or critical findings. The review needs GitHub's **Dependency graph** setting (Settings → Code security and analysis). When that setting is off, the job passes but posts a warning and a step summary saying the dependency changes were not reviewed. It fails, never skips, if its token cannot read the repository or the API answers anything unexpected.
 
