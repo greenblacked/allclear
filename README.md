@@ -20,6 +20,12 @@
   <a href="#development">Development</a>
 </p>
 
+<p align="center">
+
+![The AllClear board with live status for all fourteen services](docs/board.png)
+
+</p>
+
 ## Why AllClear
 
 When something breaks, the answer is spread across a dozen vendor dashboards, each with its own layout and vocabulary. Outage trackers are quicker, but they count user complaints, not what the vendor has confirmed. AllClear puts the official answers on one screen and holds itself to four rules:
