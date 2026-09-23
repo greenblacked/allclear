@@ -41,7 +41,9 @@ fi
 # CONTRIBUTING.md: TypeScript strict, no \`any\`.
 # Matched with grep, not a pathspec: 'src/**/*.ts' needs an intermediate
 # directory, so it silently skipped src/router.tsx.
-ts_files() { git ls-files -- src | grep -E '\.tsx?$'; }
+# Generated output is excluded from the style bans: routeTree.gen.ts is
+# written by TanStack Router and legitimately contains `as any`.
+ts_files() { git ls-files -- src | grep -E '\.tsx?$' | grep -vE '\.gen\.tsx?$'; }
 
 if ts_files | xargs -r grep -nE ':\s*any\b|<any>|as any' ; then
   echo "::error::explicit \`any\` found; CONTRIBUTING.md requires TypeScript strict with no \`any\`" >&2

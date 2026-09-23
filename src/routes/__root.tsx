@@ -1,8 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { useState } from "react";
-import { AuthProvider } from "@/lib/auth/provider";
-import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "AllClear";
@@ -23,11 +21,8 @@ function RootDocument() {
         <HeadContent />
       </head>
       <body className="bg-bg font-sans text-fg">
-        <PreviewHostBridge />
         <QueryClientProvider client={queryClient}>
-          <AuthProvider>
-            <Outlet />
-          </AuthProvider>
+          <Outlet />
         </QueryClientProvider>
         <Scripts />
       </body>
@@ -36,7 +31,7 @@ function RootDocument() {
 }
 
 const DESCRIPTION =
-  "Live status board for GCP, AWS, Steam, CS2 Europe, Epic, Fortnite, Spotify, Apple, Android, Grok, ChatGPT, Claude, MikroTik RouterOS, and Apple OS. Official sources checked on open, then every 2 minutes.";
+  "Live status board for GCP, AWS, Steam, CS2 Europe, Epic, Fortnite, Spotify, Apple, Android, Grok, ChatGPT, Claude, MikroTik RouterOS, and Apple OS.";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -59,9 +54,8 @@ export const Route = createRootRoute({
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
       { rel: "stylesheet", href: appCss },
-      // Dropped: /__grok/manifest.webmanifest and /__grok/icon-180.png were
-      // left over from a hosting template. Neither file exists in public/,
-      // so both 404 on every page load.
+      // /__grok/manifest.webmanifest and /__grok/icon-180.png are gone: they
+      // were hosting-template leftovers with no file in public/, so both 404.
     ],
   }),
   component: RootDocument,

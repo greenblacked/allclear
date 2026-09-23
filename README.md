@@ -40,7 +40,7 @@ Status is scattered across a dozen dashboards with different shapes. AllClear no
 | MikroTik RouterOS | [MikroTik changelogs](https://mikrotik.com/download/changelogs) | Official `NEWEST*` channel files + `CHANGELOG` |
 | Apple OS | [Apple Developer Releases](https://developer.apple.com/news/releases/) | Official releases RSS for iOS, iPadOS, macOS, watchOS, tvOS, visionOS |
 
-Snapshots cache for 45 seconds on the server. Opening the board always pulls a fresh check. After that, official sources are re-checked every two minutes and a board update is posted on the 2-minute clock.
+Snapshots cache for 45 seconds on the server. The board loads from that cache and checks official sources every two minutes. Use Refresh when you need an immediate fresh pull from vendors.
 
 ## Using the board
 
@@ -68,31 +68,30 @@ scripts/ci/               # checks that CI and contributors run identically
 
 The UI is React 19 on TanStack Start with Tailwind v4. Status collection happens in a server function (`src/lib/status/board.ts`) so the browser never has to fight CORS.
 
-**Requires Node 22.18+ or 24+.** The test suite imports `.ts` modules directly and relies on native type stripping, so it needs no install step and no test framework.
-
-### Checks
-
-Every CI check has the same local command:
+Use Node 22.13.0 with npm 11.9.0 (`.nvmrc` and `packageManager` are authoritative):
 
 ```bash
-node --test                               # whole suite
-node --test src/lib/status/diff.test.ts   # a single file
+npm ci
+npm run typecheck
+npm test
+npm run build
+```
 
+`npm run preview` is a built-artifact smoke check, not a production SSR host: the TanStack build exports a Fetch-style handler in `dist/server/server.js` and this repository deliberately does not choose a deployment adapter. Production deployment must provide an explicit compatible adapter/host before it can run SSR.
+
+### Repository checks
+
+These need no install, and CI runs them with the same commands:
+
+```bash
 ./scripts/ci/hygiene.sh                   # line endings, trailing whitespace, final newline, no `any`, no raw hex in JSX
 ./scripts/ci/links.sh                     # relative links in the Markdown docs
 ./scripts/ci/commits.sh origin/main..HEAD # Conventional Commits
 ```
 
-Covered by tests: board diffing, the two-minute pulse, changelog parsing, and the pure decision rules inside the vendor collectors (Grok feed staleness, AWS event activity). The collectors' network paths are not covered, and neither is `http.ts`.
+Covered by tests: board diffing, the two-minute pulse, changelog parsing, the server TTL cache, and the pure decision rules inside the vendor collectors (Grok feed staleness, AWS event activity). The collectors' network paths are not covered, and neither is `http.ts`.
 
-### Toolchain status
-
-A fresh clone cannot build or serve the board yet, and CI is scoped to what is reproducible today. Two things are missing:
-
-- No `package.json`, lockfile, or bundler config is committed, so there is no `npm install` and no dev server
-- `src/router.tsx` and `src/routes/__root.tsx` import three modules that are not in the tree: `@/lib/error-component`, `@/lib/auth/provider`, and `@/components/preview-host-bridge`
-
-Once both land, add an `npm` entry to [`.github/dependabot.yml`](.github/dependabot.yml) and typecheck, lint, and build jobs to [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+Pull requests run dependency review and fail on high or critical findings. Repository administrators must keep GitHub's dependency graph enabled; if that GitHub feature is unavailable, the check fails explicitly rather than skipping review.
 
 ## Git and authorship
 
