@@ -1,0 +1,47 @@
+name: Base images
+
+# Runs compose.yaml against the real shared CI images from
+# greenblacked/github-base-images. Their bookworm-v1 tags are rebuilt weekly,
+# so a scheduled run catches an image change that breaks this repository
+# before anyone relies on it locally.
+
+on:
+  pull_request:
+    paths:
+      - compose.yaml
+      - scripts/ci/container-checks.sh
+      - package.json
+      - package-lock.json
+      - .github/workflows/base-images.yml
+  schedule:
+    # Weekly, Wednesday morning UTC, after the images' weekly rebuild.
+    - cron: '41 6 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: base-images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose:
+    name: compose ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [node22, node24, security]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # gitleaks in the security service scans the whole history.
+          fetch-depth: 0
+
+      - name: Run ${{ matrix.service }}
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: docker compose run --rm "$SERVICE"

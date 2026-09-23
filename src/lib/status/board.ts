@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { CACHE_TTL_MS } from "./schedule";
+import { CACHE_MAX_STALE_MS, CACHE_TTL_MS, MIN_FORCED_REFRESH_MS } from "./schedule";
 import { createTtlCache } from "./ttl-cache";
 import type { BoardSnapshot, Health, ServiceSnapshot } from "./types";
 
@@ -23,10 +23,16 @@ const boardCache = createTtlCache(async () => {
   const { collectAllServices } = await import("./sources.server");
   const services = await collectAllServices();
   return assemble(services, Date.now() - started);
-}, CACHE_TTL_MS);
+}, CACHE_TTL_MS, { maxStaleMs: CACHE_MAX_STALE_MS, minForceIntervalMs: MIN_FORCED_REFRESH_MS });
 
 export const fetchStatusBoard = createServerFn({ method: "GET" }).handler(async () => {
   return boardCache.get();
+});
+
+// The route loader only: renders at once from a recently expired snapshot
+// instead of blocking the first paint on a full vendor sweep.
+export const loadStatusBoardForPage = createServerFn({ method: "GET" }).handler(async () => {
+  return boardCache.get({ allowStale: true });
 });
 
 export const refreshStatusBoard = createServerFn({ method: "POST" }).handler(async () => {

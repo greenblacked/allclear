@@ -88,3 +88,13 @@ export function overallSummary(health: Health, incidentCount: number, componentH
   }
   return "Status could not be confirmed from the official source.";
 }
+
+// What the board's Attention count is made of, worst first.
+const ATTENTION_ORDER: Health[] = ["outage", "degraded", "unknown", "maintenance"];
+
+export function attentionBreakdown(counts: Record<Health, number>): string {
+  const parts = ATTENTION_ORDER.filter((health) => counts[health] > 0).map(
+    (health) => `${counts[health]} ${healthLabel(health).toLowerCase()}`,
+  );
+  return parts.length ? parts.join(" · ") : "nothing to watch";
+}

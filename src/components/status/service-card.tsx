@@ -82,7 +82,7 @@ export function ServiceCard({
         <HealthDot health={service.health} />
       </div>
 
-      <p className="mt-4 min-h-10 text-sm leading-relaxed text-muted text-pretty">{service.summary}</p>
+      <p className="mt-4 min-h-10 text-sm leading-relaxed text-muted text-pretty [overflow-wrap:anywhere]">{service.summary}</p>
 
       {shown.length > 0 ? (
         <ul className="mt-4 flex flex-col gap-1.5">
