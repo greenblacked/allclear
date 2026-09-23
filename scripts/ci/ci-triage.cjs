@@ -13,11 +13,18 @@ const WATCHED = ["CI", "CodeQL", "Dependency review"];
 const MARKER = "<!-- allclear-ci-triage -->";
 const LABEL = "ci-failed";
 const FAILED = new Set(["failure", "timed_out", "startup_failure"]);
+// Only these count as passing. cancelled, action_required (a fork run waiting
+// for approval) and stale say nothing about the code, so they hold the
+// previous verdict instead of declaring recovery.
+const PASSED = new Set(["success", "neutral", "skipped"]);
 
 // Job and step names come from workflow files in the PR head, so a fork
 // controls them. Keep them inside code spans (no mentions, no links) and short.
+// Inside a table cell a bare | ends the cell even within a code span, which
+// would let a name break out of the span; GitHub renders \| as a literal pipe.
 function code(text) {
-  return "`" + String(text).replace(/[`\r\n]+/g, " ").slice(0, 120) + "`";
+  const safe = String(text).replace(/[`\r\n]+/g, " ").slice(0, 120).replace(/\|/g, "\\|");
+  return "`" + safe + "`";
 }
 
 function categorize(workflow, jobName, stepName) {
@@ -153,8 +160,11 @@ async function triage({ github, context, core }) {
             .join("<br>")
         : `${run.conclusion} · [run](${run.html_url})`;
       rows.push({ workflow, result: `❌ ${detail}` });
-    } else {
+    } else if (PASSED.has(run.conclusion)) {
       rows.push({ workflow, result: `✅ ${run.conclusion} · [run](${run.html_url})` });
+    } else {
+      pending = true;
+      rows.push({ workflow, result: `⚪ ${run.conclusion}: no verdict · [run](${run.html_url})` });
     }
   }
 

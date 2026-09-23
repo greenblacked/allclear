@@ -135,6 +135,23 @@ describe("ci triage", () => {
     expect(comments[0].body).toContain("`x  @someone [click](http://evil)`");
   });
 
+  it("escapes pipes so a job name cannot leave its table cell", async () => {
+    runs = [{ ...green(1, "CI"), conclusion: "failure" }];
+    jobs[1] = [{ name: "x | @org/team [link](http://evil)", conclusion: "failure", html_url: "j", steps: [] }];
+    await run();
+    expect(comments[0].body).toContain("`x \\| @org/team [link](http://evil)`");
+  });
+
+  it("does not declare recovery when the re-run was cancelled", async () => {
+    runs = [{ ...green(1, "CI"), conclusion: "failure" }];
+    jobs[1] = [{ name: "quality", conclusion: "failure", html_url: "j", steps: [{ name: "Repository hygiene", number: 3, conclusion: "failure" }] }];
+    await run();
+    runs = [{ ...green(4, "CI", 2), conclusion: "cancelled" }];
+    await run();
+    expect(comments[0].body).toContain("CI failing");
+    expect(labels).toEqual(["ci-failed"]);
+  });
+
   it("does not count a cancelled run as a failure", async () => {
     runs = [{ ...green(1, "CI"), conclusion: "cancelled" }];
     await run();
