@@ -238,7 +238,7 @@ docker compose run --rm security       # ci-security: trivy (HIGH/CRITICAL) and 
 
 Every pull request runs CI on the pinned Node and on Node 24, plus CodeQL and dependency review. A triage bot explains failed checks in one PR comment, and the hourly source-health job watches the real endpoints. [.github/workflows/README.md](.github/workflows/README.md) covers each workflow.
 
-**Releases:** `./scripts/release/bump.sh minor` prepares the version bump and changelog on a release branch. Merging its pull request tags the commit and publishes a GitHub Release, with notes taken from [CHANGELOG.md](CHANGELOG.md). [CONTRIBUTING.md](CONTRIBUTING.md#releases) has the steps.
+**Releases:** run the Release workflow with bump `patch`, `minor` or `major` (`gh workflow run release.yml -f bump=minor`). CI bumps the version, tags the commit and publishes a GitHub Release, with notes taken from [CHANGELOG.md](CHANGELOG.md). [CONTRIBUTING.md](CONTRIBUTING.md#releases) has the details.
 
 **Adding a service:** add a catalog entry in `src/lib/status/catalog.ts` and a collector in `src/lib/status/sources.server.ts`, read only an official machine-readable source, map it onto the five states, and add it to [What it watches](#what-it-watches) in the same commit. [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-service) has the full checklist.
 

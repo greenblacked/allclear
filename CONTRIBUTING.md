@@ -49,33 +49,40 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`.
 
 Status Bar uses [Semantic Versioning](https://semver.org/). Before 1.0, a minor version adds services or changes health rules, and a patch fixes behavior without changing the rules.
 
-Every pull request with a user-visible change adds a line under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md). To release:
+Every pull request with a user-visible change adds a line under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md). Releases are cut from CI:
+
+1. Open **Actions → Release → Run workflow** on `main`, or run the command below.
+2. Pick `patch`, `minor` or `major` for **bump**.
 
 ```bash
-git switch main && git pull --ff-only
-./scripts/release/bump.sh minor        # or patch, major, or an exact 1.2.3
-git push -u origin release/v0.2.0      # the script prints the exact branch
+gh workflow run release.yml --ref main -f bump=minor
 ```
 
-[`bump.sh`](scripts/release/bump.sh) refuses to run on anything but a clean, up-to-date `main`, and refuses when there is nothing under Unreleased or the tag already exists. It then:
+[`release.yml`](.github/workflows/release.yml) then:
 
-- bumps `package.json` and `package-lock.json`;
-- turns `## [Unreleased]` into `## [0.2.0] - <today>` with a new empty Unreleased above it;
-- updates the compare links;
-- commits `chore(release): 0.2.0` on `release/v0.2.0`, authored by you.
+1. Checks the release:
+   - there is something under Unreleased;
+   - the new tag doesn't exist yet;
+   - typecheck, tests and build pass.
+2. Commits `chore(release): X.Y.Z` to `main`, authored by the account that ran the workflow. The commit updates `package.json`, `package-lock.json` and the changelog, and dates the new changelog section.
+3. Tags that commit `vX.Y.Z`.
+4. Publishes the GitHub Release with the new changelog section as its notes.
 
-Open a pull request from that branch. When it merges, [`release.yml`](.github/workflows/release.yml) sees the new version on `main` and:
+If a check fails, or `main` moves while the run is in progress, nothing is committed, tagged or published.
 
-1. runs typecheck, tests and build;
-2. tags the merge commit `v0.2.0`;
-3. publishes a GitHub Release with the `## [0.2.0]` section as its notes.
+Other ways in, with the same checks:
 
-If any check fails, nothing is tagged or published: fix it on `main` and use **Run workflow** on Release. A push that changes `package.json` without changing the version releases nothing.
+| Way | When |
+| --- | --- |
+| **Run workflow** with bump `current` | Publishes the `package.json` version as it is, if it has no tag yet. Use it for the first release (`0.1.0`), or to retry a run that committed the bump but did not publish. |
+| [`scripts/release/bump.sh`](scripts/release/bump.sh) `minor` | Makes the same bump commit locally on `release/vX.Y.Z` for review in a pull request. Merging it tags the merge commit and publishes. |
+| A tag pushed by hand | `git tag -a v0.2.0 -m "Status Bar 0.2.0" && git push origin v0.2.0` publishes that tag, if it matches `package.json` and is on `main`. |
 
-Two other ways in, for the same checks:
+A push to `main` that changes `package.json` without changing the version releases nothing.
 
-- **Run workflow** on `main` releases the current `package.json` version if it has no tag yet. This is how `0.1.0`, which is already in `package.json`, gets published.
-- Pushing a tag by hand (`git tag -a v0.2.0 -m "Status Bar 0.2.0" && git push origin v0.2.0`) publishes that tag, provided it matches `package.json` and is on `main`.
+The bump commit and the tag are pushed with the workflow's `GITHUB_TOKEN`, so they start no other workflow and CI does not run on the bump commit itself. The verify job has already checked the same code.
+
+If `main` later gets a ruleset that requires pull requests or status checks, the workflow's direct push to `main` is rejected unless GitHub Actions is a bypass actor. Until that is set up, release with `bump.sh` and a pull request.
 
 Never move or reuse a tag that has a published release; release a new patch version instead.
 

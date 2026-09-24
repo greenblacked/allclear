@@ -1,14 +1,18 @@
 name: Release
 
 # Publishes a GitHub Release whose notes are that version's CHANGELOG.md
-# section. Three ways in:
-#   - merging a pull request from scripts/release/bump.sh, which changes the
-#     version in package.json: this workflow tags the merge commit
-#   - pushing a vMAJOR.MINOR.PATCH tag by hand
-#   - Run workflow on main, for a package.json version with no tag yet
+# section, and creates its vX.Y.Z tag. Ways in:
+#   - Run workflow with bump = patch, minor or major: bumps the version and
+#     dates the changelog in a commit on main authored by whoever clicked,
+#     then tags that commit and publishes. The usual way to release.
+#   - Run workflow with bump = current: publishes the package.json version
+#     as it is, if it has no tag yet (the first release, or a retry).
+#   - Merging a pull request that changes the version in package.json,
+#     for example one from scripts/release/bump.sh: tags the merge commit.
+#   - Pushing a vX.Y.Z tag by hand.
 # The release has to be on main, have a changelog section and pass the same
-# checks as CI. If any check fails, nothing is tagged or published.
-# CONTRIBUTING.md#releases has the steps.
+# checks as CI. If any check fails, nothing is committed, tagged or
+# published. CONTRIBUTING.md#releases has the details.
 
 on:
   push:
@@ -17,6 +21,12 @@ on:
     # Filters the branch push only. GitHub does not apply paths to tag pushes.
     paths: [package.json]
   workflow_dispatch:
+    inputs:
+      bump:
+        description: 'patch, minor or major bumps the version and releases it; current releases the package.json version as it is'
+        type: choice
+        options: [current, patch, minor, major]
+        default: current
 
 permissions:
   contents: read
@@ -48,16 +58,30 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           BEFORE: ${{ github.event.before }}
+          BUMP: ${{ inputs.bump }}
         run: |
-          version="$(node -p "require('./package.json').version")"
-          tag="v$version"
-          echo "tag=$tag" >>"$GITHUB_OUTPUT"
           skip() { echo "::notice::$1"; echo "release=false" >>"$GITHUB_OUTPUT"; exit 0; }
 
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "::error::$GITHUB_SHA is not on main; only main is released"
             exit 1
           fi
+
+          if [ "$EVENT" = workflow_dispatch ] && [ "$BUMP" != current ]; then
+            # A dry run of the bump publish will make: it validates the
+            # changelog and the new tag, and its commit is thrown away.
+            git config user.name plan
+            git config user.email plan@localhost
+            ./scripts/release/bump.sh --ci "$BUMP"
+            version="$(node -p "require('./package.json').version")"
+            echo "tag=v$version" >>"$GITHUB_OUTPUT"
+            echo "release=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          version="$(node -p "require('./package.json').version")"
+          tag="v$version"
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
 
           if [ "$REF_TYPE" = tag ]; then
             if [ "$REF_NAME" != "$tag" ]; then
@@ -73,7 +97,7 @@ jobs:
             fi
             if existing="$(git rev-parse -q --verify "refs/tags/$tag^{commit}")"; then
               if [ "$existing" != "$GITHUB_SHA" ]; then
-                echo "::error::$tag already exists on $existing; bump to a new version with scripts/release/bump.sh"
+                echo "::error::$tag already exists on $existing; run this workflow with bump = patch, minor or major"
                 exit 1
               fi
             fi
@@ -81,7 +105,6 @@ jobs:
 
           ./scripts/ci/release-notes.sh "$version" >/dev/null
           echo "release=true" >>"$GITHUB_OUTPUT"
-          echo "Releasing $tag from $GITHUB_SHA"
 
   verify:
     name: verify release
@@ -109,14 +132,37 @@ jobs:
     needs: [plan, verify]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # The only job with write access. It runs no npm install and no project
-    # code, only the notes script and the preinstalled gh CLI.
+    # The only job with write access. It installs no dependencies and runs
+    # no project code: only the release scripts, npm version and gh.
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false
+          fetch-depth: 0
+          # Kept only when this job has a bump commit to push to main.
+          persist-credentials: ${{ github.event_name == 'workflow_dispatch' && inputs.bump != 'current' }}
+
+      - name: Commit the version bump to main
+        if: github.event_name == 'workflow_dispatch' && inputs.bump != 'current'
+        env:
+          BUMP: ${{ inputs.bump }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+        run: |
+          # Authored by the account that ran the workflow, not a bot.
+          git config user.name "$ACTOR"
+          git config user.email "$ACTOR_ID+$ACTOR@users.noreply.github.com"
+          ./scripts/release/bump.sh --ci "$BUMP"
+          version="$(node -p "require('./package.json').version")"
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::bumped to v$version, but plan expected $TAG"
+            exit 1
+          fi
+          # Fails without force if main moved since the run started, so a
+          # concurrent merge is never overwritten.
+          git push origin "HEAD:refs/heads/main"
 
       - name: Tag and publish the GitHub Release
         env:
@@ -130,9 +176,9 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "Status Bar $TAG" --notes-file "$notes"
           else
-            # Creates the tag on this commit when it does not exist yet. A
-            # tag pushed by hand already points here and is used as it is.
-            # A tag created with GITHUB_TOKEN does not start this workflow
-            # again.
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "Status Bar $TAG" --notes-file "$notes"
+            # Creates the tag on HEAD: the bump commit, or the commit this
+            # run was started for. A tag pushed by hand already points there
+            # and is used as it is. Neither the tag nor a bump pushed with
+            # GITHUB_TOKEN starts this workflow again.
+            gh release create "$TAG" --target "$(git rev-parse HEAD)" --title "Status Bar $TAG" --notes-file "$notes"
           fi

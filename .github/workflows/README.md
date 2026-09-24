@@ -8,7 +8,7 @@
 | [`ci-triage.yml`](ci-triage.yml) | completion of CI, CodeQL or Dependency review on a PR | One self-updating comment per PR naming the failed job, the failed step and its likely cause, plus a `ci-failed` label. Reads the API only and never runs PR code. Active once on `main` |
 | [`source-health.yml`](source-health.yml) | hourly, manual | Calls the real vendor endpoints and keeps one `source-health` issue open per broken collector, closing it on recovery |
 | [`screenshot.yml`](screenshot.yml) | manual, PRs that change it | Builds and runs the board where the vendors are reachable, captures it with live data, and uploads `board-screenshot` for the README's `docs/board.png` |
-| [`release.yml`](release.yml) | merge that changes the version in `package.json`, a `vMAJOR.MINOR.PATCH` tag, manual | Checks the release is on `main`, has a `CHANGELOG.md` section and passes typecheck, tests and build, then tags the commit if needed and publishes the GitHub Release. [`scripts/release/bump.sh`](../../scripts/release/bump.sh) prepares the version bump |
+| [`release.yml`](release.yml) | Run workflow with bump `patch`, `minor` or `major`; a merge that changes the version in `package.json`; a `vX.Y.Z` tag | Checks the release is on `main`, has a `CHANGELOG.md` section and passes typecheck, tests and build. Then it commits the version bump to `main` when asked, tags the commit and publishes the GitHub Release |
 | [`base-images.yml`](base-images.yml) | PRs that change `compose.yaml`, its script or the dependencies; weekly; manual | Runs `compose.yaml` against the real `ci-node22`, `ci-node24` and `ci-security` images, so a base-image change that breaks this repository shows up here first |
 
 Every check in `ci.yml` has a local equivalent:
