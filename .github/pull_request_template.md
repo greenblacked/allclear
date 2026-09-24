@@ -12,6 +12,7 @@
 - [ ] `npm run typecheck` and `npm test` pass locally
 - [ ] `./scripts/ci/hygiene.sh` and `./scripts/ci/links.sh` pass locally
 - [ ] README updated in the same commit if vendor coverage or health rules changed
+- [ ] `CHANGELOG.md` has a line under `## [Unreleased]` if the change is user-visible
 - [ ] New services read an **official** machine-readable source, documented in the README table
 - [ ] No secrets, `.env` files, or vendor credentials
 
