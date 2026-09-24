@@ -210,6 +210,7 @@ src/lib/status/           # catalog, health model, collectors, cache and schedul
 src/components/status/    # board UI
 src/routes/               # TanStack Start routes
 scripts/ci/               # checks that CI and contributors run the same way
+scripts/release/          # version bump for a release
 .github/workflows/        # CI, security scans, and the triage and source-health bots
 docs/                     # commit and README conventions
 ```
@@ -220,6 +221,7 @@ The repository checks need no install, and CI runs the same commands:
 ./scripts/ci/hygiene.sh                   # line endings, whitespace, no `any`, no raw hex in JSX
 ./scripts/ci/links.sh                     # relative links in the Markdown docs
 ./scripts/ci/commits.sh origin/main..HEAD # Conventional Commits
+./scripts/ci/release-notes.sh             # the CHANGELOG.md section the next release publishes
 node --experimental-strip-types scripts/ci/source-health.ts   # the one check that calls real vendors
 ```
 
@@ -235,6 +237,8 @@ docker compose run --rm security       # ci-security: trivy (HIGH/CRITICAL) and 
 `node_modules` and `dist` stay inside Docker volumes, so the Linux install never overwrites a macOS or Windows one. The images follow the latest release of each Node line, while `.nvmrc` pins 22.13.0 for CI's `verify` job, so this is a check on the line rather than an exact replay of that job. The tags are rolling; set `CI_NODE22_IMAGE`, `CI_NODE24_IMAGE` or `CI_SECURITY_IMAGE` to an `@sha256:` digest to pin one. `docker compose down --volumes` removes the cached installs.
 
 Every pull request runs CI on the pinned Node and on Node 24, plus CodeQL and dependency review. A triage bot explains failed checks in one PR comment, and the hourly source-health job watches the real endpoints. [.github/workflows/README.md](.github/workflows/README.md) covers each workflow.
+
+**Releases:** run the Release workflow with bump `patch`, `minor` or `major` (`gh workflow run release.yml -f bump=minor`). CI bumps the version, tags the commit and publishes a GitHub Release, with notes taken from [CHANGELOG.md](CHANGELOG.md). [CONTRIBUTING.md](CONTRIBUTING.md#releases) has the details.
 
 **Adding a service:** add a catalog entry in `src/lib/status/catalog.ts` and a collector in `src/lib/status/sources.server.ts`, read only an official machine-readable source, map it onto the five states, and add it to [What it watches](#what-it-watches) in the same commit. [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-service) has the full checklist.
 

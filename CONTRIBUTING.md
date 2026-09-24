@@ -45,6 +45,47 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`.
 - Link any issue
 - Prefer small PRs that a reviewer can hold in their head
 
+## Releases
+
+Status Bar uses [Semantic Versioning](https://semver.org/). Before 1.0, a minor version adds services or changes health rules, and a patch fixes behavior without changing the rules.
+
+Every pull request with a user-visible change adds a line under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md). Releases are cut from CI:
+
+1. Open **Actions → Release → Run workflow** on `main`, or run the command below.
+2. Pick `patch`, `minor` or `major` for **bump**.
+
+```bash
+gh workflow run release.yml --ref main -f bump=minor
+```
+
+[`release.yml`](.github/workflows/release.yml) then:
+
+1. Checks the release:
+   - there is something under Unreleased;
+   - the new tag doesn't exist yet;
+   - typecheck, tests and build pass.
+2. Commits `chore(release): X.Y.Z` to `main`, authored by the account that ran the workflow. The commit updates `package.json`, `package-lock.json` and the changelog, and dates the new changelog section.
+3. Tags that commit `vX.Y.Z`.
+4. Publishes the GitHub Release with the new changelog section as its notes.
+
+If a check fails, or `main` moves while the run is in progress, nothing is committed, tagged or published.
+
+Other ways in, with the same checks:
+
+| Way | When |
+| --- | --- |
+| **Run workflow** with bump `current` | Publishes the `package.json` version as it is, if it has no tag yet. Use it for the first release (`0.1.0`), or to retry a run that committed the bump but did not publish. |
+| [`scripts/release/bump.sh`](scripts/release/bump.sh) `minor` | Makes the same bump commit locally on `release/vX.Y.Z` for review in a pull request. Merging it tags the merge commit and publishes. |
+| A tag pushed by hand | `git tag -a v0.2.0 -m "Status Bar 0.2.0" && git push origin v0.2.0` publishes that tag, if it matches `package.json` and is on `main`. |
+
+A push to `main` that changes `package.json` without changing the version releases nothing.
+
+The bump commit and the tag are pushed with the workflow's `GITHUB_TOKEN`, so they start no other workflow and CI does not run on the bump commit itself. The verify job has already checked the same code.
+
+If `main` later gets a ruleset that requires pull requests or status checks, the workflow's direct push to `main` is rejected unless GitHub Actions is a bypass actor. Until that is set up, release with `bump.sh` and a pull request.
+
+Never move or reuse a tag that has a published release; release a new patch version instead.
+
 ## Dependencies
 
 Dependabot proposes npm and GitHub Actions updates weekly, grouped into production dependencies, development dependencies and Actions.
