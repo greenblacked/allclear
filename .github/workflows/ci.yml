@@ -105,7 +105,7 @@ jobs:
         run: ./scripts/ci/release-notes.sh >/dev/null
 
       - name: Shell scripts
-        run: shellcheck scripts/ci/*.sh
+        run: shellcheck scripts/ci/*.sh scripts/release/*.sh
 
   commits:
     name: commit messages

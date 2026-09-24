@@ -49,26 +49,35 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`.
 
 Status Bar uses [Semantic Versioning](https://semver.org/). Before 1.0, a minor version adds services or changes health rules, and a patch fixes behavior without changing the rules.
 
-Every pull request with a user-visible change adds a line under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md). To cut a release, for example `0.2.0`:
+Every pull request with a user-visible change adds a line under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md). To release:
 
-1. Open a pull request titled `chore(release): 0.2.0` that:
-   - runs `npm version 0.2.0 --no-git-tag-version`, which updates `package.json` and `package-lock.json`;
-   - renames `## [Unreleased]` to `## [0.2.0] - YYYY-MM-DD` and adds a new empty `## [Unreleased]` above it;
-   - updates the compare links at the bottom of `CHANGELOG.md`.
-2. After it merges, tag the merge commit on `main` and push the tag:
+```bash
+git switch main && git pull --ff-only
+./scripts/release/bump.sh minor        # or patch, major, or an exact 1.2.3
+git push -u origin release/v0.2.0      # the script prints the exact branch
+```
 
-   ```bash
-   git switch main && git pull --ff-only
-   git tag -a v0.2.0 -m "Status Bar 0.2.0"
-   git push origin v0.2.0
-   ```
+[`bump.sh`](scripts/release/bump.sh) refuses to run on anything but a clean, up-to-date `main`, and refuses when there is nothing under Unreleased or the tag already exists. It then:
 
-3. [`release.yml`](.github/workflows/release.yml) then:
-   - checks that the tag matches `package.json` and is on `main`;
-   - runs typecheck, tests and build again;
-   - publishes a GitHub Release with the `## [0.2.0]` section as its notes.
+- bumps `package.json` and `package-lock.json`;
+- turns `## [Unreleased]` into `## [0.2.0] - <today>` with a new empty Unreleased above it;
+- updates the compare links;
+- commits `chore(release): 0.2.0` on `release/v0.2.0`, authored by you.
 
-If `release.yml` fails, nothing is published. Delete the tag (`git push --delete origin v0.2.0 && git tag -d v0.2.0`), fix the problem on `main`, then tag again. Never move a tag that already has a published release; release a new patch version instead.
+Open a pull request from that branch. When it merges, [`release.yml`](.github/workflows/release.yml) sees the new version on `main` and:
+
+1. runs typecheck, tests and build;
+2. tags the merge commit `v0.2.0`;
+3. publishes a GitHub Release with the `## [0.2.0]` section as its notes.
+
+If any check fails, nothing is tagged or published: fix it on `main` and use **Run workflow** on Release. A push that changes `package.json` without changing the version releases nothing.
+
+Two other ways in, for the same checks:
+
+- **Run workflow** on `main` releases the current `package.json` version if it has no tag yet. This is how `0.1.0`, which is already in `package.json`, gets published.
+- Pushing a tag by hand (`git tag -a v0.2.0 -m "Status Bar 0.2.0" && git push origin v0.2.0`) publishes that tag, provided it matches `package.json` and is on `main`.
+
+Never move or reuse a tag that has a published release; release a new patch version instead.
 
 ## Dependencies
 
