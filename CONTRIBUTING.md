@@ -45,6 +45,31 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`.
 - Link any issue
 - Prefer small PRs that a reviewer can hold in their head
 
+## Releases
+
+Status Bar uses [Semantic Versioning](https://semver.org/). Before 1.0, a minor version adds services or changes health rules, and a patch fixes behavior without changing the rules.
+
+Every pull request with a user-visible change adds a line under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md). To cut a release, for example `0.2.0`:
+
+1. Open a pull request titled `chore(release): 0.2.0` that:
+   - runs `npm version 0.2.0 --no-git-tag-version`, which updates `package.json` and `package-lock.json`;
+   - renames `## [Unreleased]` to `## [0.2.0] - YYYY-MM-DD` and adds a new empty `## [Unreleased]` above it;
+   - updates the compare links at the bottom of `CHANGELOG.md`.
+2. After it merges, tag the merge commit on `main` and push the tag:
+
+   ```bash
+   git switch main && git pull --ff-only
+   git tag -a v0.2.0 -m "Status Bar 0.2.0"
+   git push origin v0.2.0
+   ```
+
+3. [`release.yml`](.github/workflows/release.yml) then:
+   - checks that the tag matches `package.json` and is on `main`;
+   - runs typecheck, tests and build again;
+   - publishes a GitHub Release with the `## [0.2.0]` section as its notes.
+
+If `release.yml` fails, nothing is published. Delete the tag (`git push --delete origin v0.2.0 && git tag -d v0.2.0`), fix the problem on `main`, then tag again. Never move a tag that already has a published release; release a new patch version instead.
+
 ## Dependencies
 
 Dependabot proposes npm and GitHub Actions updates weekly, grouped into production dependencies, development dependencies and Actions.

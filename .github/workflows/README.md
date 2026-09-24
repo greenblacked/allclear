@@ -8,6 +8,7 @@
 | [`ci-triage.yml`](ci-triage.yml) | completion of CI, CodeQL or Dependency review on a PR | One self-updating comment per PR naming the failed job, the failed step and its likely cause, plus a `ci-failed` label. Reads the API only and never runs PR code. Active once on `main` |
 | [`source-health.yml`](source-health.yml) | hourly, manual | Calls the real vendor endpoints and keeps one `source-health` issue open per broken collector, closing it on recovery |
 | [`screenshot.yml`](screenshot.yml) | manual, PRs that change it | Builds and runs the board where the vendors are reachable, captures it with live data, and uploads `board-screenshot` for the README's `docs/board.png` |
+| [`release.yml`](release.yml) | push of a `vMAJOR.MINOR.PATCH` tag | Checks the tag matches `package.json` and is on `main`, reruns typecheck, tests and build, then publishes a GitHub Release with that version's `CHANGELOG.md` section as notes |
 | [`base-images.yml`](base-images.yml) | PRs that change `compose.yaml`, its script or the dependencies; weekly; manual | Runs `compose.yaml` against the real `ci-node22`, `ci-node24` and `ci-security` images, so a base-image change that breaks this repository shows up here first |
 
 Every check in `ci.yml` has a local equivalent:
@@ -17,5 +18,6 @@ npm ci && npm run typecheck && npm test && npm run build
 ./scripts/ci/hygiene.sh  # line endings, trailing whitespace, final newline, no `any`, no raw hex
 ./scripts/ci/links.sh    # relative links in the Markdown docs
 ./scripts/ci/commits.sh origin/main..HEAD
+./scripts/ci/release-notes.sh           # the CHANGELOG.md section release.yml would publish
 node --experimental-strip-types scripts/ci/source-health.ts   # live vendor check, exits 1 on any failure
 ```
