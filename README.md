@@ -77,8 +77,8 @@ The two Updates services track releases, not incidents. They stay Operational an
 | --- | --- |
 | Google Cloud | `incidents.json`; only incidents without an end time count |
 | AWS | Public current events. An event counts while it is unresolved and updated within the last 14 days. Single-region or single-zone events are Degraded, not Outage |
-| Steam | `GetServerInfo` plus the Store featured API. Both answering is Operational, one is Degraded, neither is Outage |
-| CS2 Europe | European relay points of presence. Degraded when fewer than 3, or fewer than 40%, of them publish relays |
+| Steam | `GetServerInfo` plus the Store featured API. Both answering with the expected data is Operational, only one is Degraded and its component says why. If neither can be read, the card is Unknown |
+| CS2 Europe | European relay points of presence. Outage when the relay config reports failure or lists no European points. Degraded when fewer than 3, or fewer than 40%, of them publish relays. An Operational card shows the player count when it is available; the count never affects health |
 | Epic Games | Statuspage summary, worst component, excluding Fortnite components |
 | Fortnite | Same page, only components whose name contains "Fortnite" |
 | Spotify, ChatGPT, Claude | Statuspage summary indicator |

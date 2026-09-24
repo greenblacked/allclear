@@ -361,27 +361,37 @@ async function collectAws(): Promise<ServiceSnapshot> {
 async function collectSteam(): Promise<ServiceSnapshot> {
   const started = Date.now();
   try {
-    const [info, store] = await Promise.all([
-      timed(() => fetchJson<{ servertime?: number }>("https://api.steampowered.com/ISteamWebAPIUtil/GetServerInfo/v1/")),
-      timed(() =>
-        fetchJson<{ featured_win?: unknown[] }>("https://store.steampowered.com/api/featured/"),
-      ),
+    // allSettled, not all: one endpoint being down should degrade the card,
+    // not blank it. Only when neither answers usefully do we fail the whole
+    // collector, and with the real error rather than a generic outage.
+    const [info, store] = await Promise.allSettled([
+      fetchJson<{ servertime?: unknown } | null>("https://api.steampowered.com/ISteamWebAPIUtil/GetServerInfo/v1/"),
+      fetchJson<{ featured_win?: unknown } | null>("https://store.steampowered.com/api/featured/"),
     ]);
-    const ms = Math.max(info.ms, store.ms);
-    const apiOk = typeof info.value.servertime === "number";
-    const storeOk = Array.isArray(store.value.featured_win);
-    let health: Health = apiOk && storeOk ? "operational" : apiOk || storeOk ? "degraded" : "outage";
+    const servertime = info.status === "fulfilled" ? info.value?.servertime : undefined;
+    const apiOk = typeof servertime === "number";
+    const storeOk = store.status === "fulfilled" && Array.isArray(store.value?.featured_win);
+    if (!apiOk && !storeOk) {
+      if (info.status === "rejected") throw info.reason;
+      if (store.status === "rejected") throw store.reason;
+      throw new PayloadError("Steam Web API and Store answered in an unexpected shape.");
+    }
+    // The half that failed says why on its component, so a Degraded card is
+    // never left without a reason.
+    const why = (result: PromiseSettledResult<unknown>) =>
+      result.status === "rejected" ? classifyFailure(result.reason).message : "Unexpected response shape.";
+    const health: Health = apiOk && storeOk ? "operational" : "degraded";
     const components: ComponentHealth[] = [
-      { name: "Steam Web API", health: apiOk ? "operational" : "outage" },
-      { name: "Steam Store", health: storeOk ? "operational" : "outage" },
+      apiOk ? { name: "Steam Web API", health: "operational" } : { name: "Steam Web API", health: "outage", detail: why(info) },
+      storeOk ? { name: "Steam Store", health: "operational" } : { name: "Steam Store", health: "outage", detail: why(store) },
     ];
     return {
-      ...base("steam", new Date().toISOString(), ms),
+      ...base("steam", new Date().toISOString(), Date.now() - started),
       health,
       summary: overallSummary(health, 0, health === "operational" ? "Web API and Store responding." : undefined),
       components,
       incidents: [],
-      meta: { servertime: info.value.servertime ?? 0 },
+      meta: { servertime: apiOk ? servertime : 0 },
     };
   } catch (error) {
     return failed("steam", started, error);
@@ -401,15 +411,18 @@ function isEuropePop(code: string, desc: string, geo?: number[]): boolean {
 async function collectCs2Europe(): Promise<ServiceSnapshot> {
   const started = Date.now();
   try {
+    // The player count is a nice-to-have, not part of the health signal: a
+    // failure or an unreadable body here must never take the whole card
+    // down, so it is caught locally and simply omitted.
     const [sdr, players] = await Promise.all([
       timed(() => fetchJson<SteamSdr>("https://api.steampowered.com/ISteamApps/GetSDRConfig/v1/?appid=730")),
       timed(() =>
         fetchJson<{ response?: { player_count?: number; result?: number } }>(
           "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=730",
         ),
-      ),
+      ).catch(() => null),
     ]);
-    const ms = Math.max(sdr.ms, players.ms);
+    const ms = Math.max(sdr.ms, players?.ms ?? 0);
     const pops = sdr.value.pops ?? {};
     const europe = Object.entries(pops)
       .filter(([code, pop]) => isEuropePop(code, pop.desc ?? "", pop.geo))
@@ -422,10 +435,13 @@ async function collectCs2Europe(): Promise<ServiceSnapshot> {
 
     const withRelays = europe.filter((pop) => pop.relays > 0);
     const silent = europe.filter((pop) => pop.relays === 0);
-    const playerCount = players.value.response?.player_count;
+    const playerCount = players?.value?.response?.player_count;
     let health: Health = "operational";
     if (!sdr.value.success || europe.length === 0) health = "outage";
-    else if (withRelays.length < Math.max(3, Math.floor(europe.length * 0.4))) health = "degraded";
+    // Fewer than 3, or fewer than 40%, of the European pops publish relays.
+    // Cross-multiplied to avoid `Math.floor` quietly loosening the 40% bar
+    // for pop counts that are not a multiple of 5.
+    else if (withRelays.length < 3 || withRelays.length * 5 < europe.length * 2) health = "degraded";
 
     const components: ComponentHealth[] = withRelays.map((pop) => ({
       name: pop.desc,
@@ -456,7 +472,7 @@ async function collectCs2Europe(): Promise<ServiceSnapshot> {
       meta: {
         euPops: europe.length,
         euWithRelays: withRelays.length,
-        players: playerCount ?? 0,
+        players: typeof playerCount === "number" ? playerCount : 0,
       },
     };
   } catch (error) {
