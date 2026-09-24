@@ -573,21 +573,104 @@ async function collectAndroid(): Promise<ServiceSnapshot> {
   }
 }
 
+// Only strip comments and things that look like tags (`<` or `</` followed by
+// a letter). A blanket `<[^>]+>` also ate a decoded "Latency < 500ms", which
+// erased "Status: Resolved" from an otherwise operational item. Plain text
+// such as "a<b ... c>d" still reads as a tag; regex stripping cannot tell.
 function stripHtml(value: string): string {
-  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .replace(/<!--[\s\S]*?-->|<\/?[a-zA-Z][^<>]*>/g, " ")
+    .replace(/&nbsp;|&#160;|&#xa0;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function parseRssItems(xml: string): Array<{ title: string; description: string; pubDate?: string; link?: string }> {
+const XML_NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+};
+
+// Matches the five predefined XML entities plus decimal and hex numeric
+// character references. A single pass with a replacer keeps `&amp;lt;` as
+// `&lt;` rather than double-decoding it into `<`: once `&amp;` becomes `&`,
+// the regex has already moved past it and never re-scans the result.
+const XML_ENTITY_RE = /&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]*);/g;
+
+export function decodeXmlEntities(text: string): string {
+  return text.replace(XML_ENTITY_RE, (match, body: string) => {
+    if (body[0] === "#") {
+      // The regex's numeric branch only ever produces a lowercase "x", so
+      // there is no uppercase case to handle here.
+      const isHex = body[1] === "x";
+      const digits = isHex ? body.slice(2) : body.slice(1);
+      const codePoint = Number.parseInt(digits, isHex ? 16 : 10);
+      // Reject out-of-range values, lone surrogate halves, and the
+      // characters XML forbids outright (C0 controls other than tab/LF/CR,
+      // and the two permanently-unassigned noncharacters) rather than let
+      // String.fromCodePoint throw or silently emit U+FFFD. `digits` is
+      // always non-negative, so there is no `codePoint < 0` case either.
+      if (
+        !Number.isFinite(codePoint) ||
+        codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff) ||
+        (codePoint < 0x20 && codePoint !== 0x9 && codePoint !== 0xa && codePoint !== 0xd) ||
+        codePoint === 0xfffe ||
+        codePoint === 0xffff
+      ) {
+        return match;
+      }
+      return String.fromCodePoint(codePoint);
+    }
+    return XML_NAMED_ENTITIES[body] ?? match;
+  });
+}
+
+// CDATA content is already literal text, so it must never be re-decoded
+// (`<![CDATA[a &amp; b]]>` should stay `a &amp; b`). Split on CDATA sections
+// and decode only the parts outside them.
+const CDATA_RE = /<!\[CDATA\[([\s\S]*?)\]\]>/g;
+
+const CDATA_START = "<![CDATA[";
+
+export function decodeXmlField(raw: string): string {
+  let result = "";
+  let lastIndex = 0;
+  CDATA_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = CDATA_RE.exec(raw))) {
+    result += decodeXmlEntities(raw.slice(lastIndex, match.index));
+    result += match[1];
+    lastIndex = CDATA_RE.lastIndex;
+  }
+  // Any `<![CDATA[` left in the tail has no closing `]]>` anywhere later in
+  // the string, or the loop above would already have consumed it. Treat
+  // everything from that marker onward as literal CDATA content: strip the
+  // marker and leave the rest undecoded, rather than decoding text the feed
+  // meant to be taken as-is.
+  const tail = raw.slice(lastIndex);
+  const unterminated = tail.indexOf(CDATA_START);
+  if (unterminated === -1) {
+    result += decodeXmlEntities(tail);
+  } else {
+    result += decodeXmlEntities(tail.slice(0, unterminated));
+    result += tail.slice(unterminated + CDATA_START.length);
+  }
+  return result;
+}
+
+export function parseRssItems(xml: string): Array<{ title: string; description: string; pubDate?: string; link?: string }> {
   const items: Array<{ title: string; description: string; pubDate?: string; link?: string }> = [];
   const blocks = xml.split(/<item[\s>]/i).slice(1);
   for (const block of blocks) {
     const chunk = block.split(/<\/item>/i)[0] ?? "";
-    const title = (chunk.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? "").replace(/<!\[CDATA\[|\]\]>/g, "").trim();
-    const description = (chunk.match(/<description>([\s\S]*?)<\/description>/i)?.[1] ?? "")
-      .replace(/<!\[CDATA\[|\]\]>/g, "")
-      .trim();
+    const title = decodeXmlField(chunk.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? "").trim();
+    const description = decodeXmlField(chunk.match(/<description>([\s\S]*?)<\/description>/i)?.[1] ?? "").trim();
     const pubDate = chunk.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1]?.trim();
-    const link = chunk.match(/<link>([\s\S]*?)<\/link>/i)?.[1]?.trim();
+    const rawLink = chunk.match(/<link>([\s\S]*?)<\/link>/i)?.[1];
+    const link = rawLink !== undefined ? decodeXmlField(rawLink).trim() : undefined;
     items.push({ title, description, pubDate, link });
   }
   return items;
