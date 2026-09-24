@@ -4,10 +4,17 @@ import { collectAllServices } from "./sources.server.ts";
 // Vendor endpoints used by src/lib/status/sources.server.ts collectors.
 // Keep these in sync with the URLs the collectors actually fetch.
 const URLS = {
+  gcp: "https://status.cloud.google.com/incidents.json",
   steamServerInfo: "https://api.steampowered.com/ISteamWebAPIUtil/GetServerInfo/v1/",
   steamFeatured: "https://store.steampowered.com/api/featured/",
   cs2Sdr: "https://api.steampowered.com/ISteamApps/GetSDRConfig/v1/?appid=730",
   cs2Players: "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=730",
+  epicFortnite: "https://status.epicgames.com/api/v2/summary.json",
+  spotify: "https://spotify.statuspage.io/api/v2/summary.json",
+  apple: "https://www.apple.com/support/systemstatus/data/system_status_en_US.js",
+  android: "https://status.play.google.com/incidents.json",
+  chatgpt: "https://status.openai.com/api/v2/summary.json",
+  claude: "https://status.claude.com/api/v2/summary.json",
 };
 
 type Handler = () => Response | Promise<Response>;
@@ -45,14 +52,139 @@ function stubFetch(routes: Partial<Record<string, Handler>>) {
   });
 }
 
+// Minimal but shape-correct Statuspage summary.json fixture.
+function statuspageSummary(overrides: {
+  indicator?: string;
+  components?: Array<{ id: string; name: string; status: string; group?: boolean }>;
+  incidents?: Array<{ id: string; name: string; status: string; impact?: string }>;
+}) {
+  return {
+    status: { indicator: overrides.indicator ?? "none", description: "All Systems Operational" },
+    components: overrides.components ?? [],
+    incidents: overrides.incidents ?? [],
+    scheduled_maintenances: [],
+  };
+}
+
+function googleIncident(overrides: Partial<{
+  id: string;
+  begin: string;
+  end: string | null;
+  modified: string;
+  external_desc: string;
+  status_impact: string;
+  severity: string;
+  service_name: string;
+  uri: string;
+}>) {
+  return {
+    id: "incident-1",
+    begin: "2026-09-20T00:00:00Z",
+    external_desc: "Elevated errors",
+    status_impact: "SERVICE_OUTAGE",
+    service_name: "Compute Engine",
+    uri: "/incidents/incident-1",
+    ...overrides,
+  };
+}
+
 describe("collectAllServices against stubbed vendor payloads", () => {
   beforeEach(() => {
+    // A safety net: if a test forgets to call stubFetch, every URL 404s
+    // instead of the real global fetch reaching out to the network.
+    stubFetch({});
     vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("splits Epic and Fortnite from the same Statuspage summary: a degraded Fortnite leaves Epic operational", async () => {
+    const summary = statuspageSummary({
+      components: [
+        { id: "1", name: "Fortnite", status: "partial_outage" },
+        { id: "2", name: "Store", status: "operational" },
+      ],
+    });
+    stubFetch({ [URLS.epicFortnite]: json(summary) });
+    const services = await collectAllServices();
+    const epic = services.find((s) => s.id === "epic")!;
+    const fortnite = services.find((s) => s.id === "fortnite")!;
+    expect(epic.health).toBe("operational");
+    expect(fortnite.health).toBe("degraded");
+  });
+
+  it("splits Epic and Fortnite the other way: a degraded Epic component leaves Fortnite operational", async () => {
+    const summary = statuspageSummary({
+      components: [
+        { id: "1", name: "Fortnite", status: "operational" },
+        { id: "2", name: "Accounts", status: "major_outage" },
+      ],
+    });
+    stubFetch({ [URLS.epicFortnite]: json(summary) });
+    const services = await collectAllServices();
+    const epic = services.find((s) => s.id === "epic")!;
+    const fortnite = services.find((s) => s.id === "fortnite")!;
+    expect(epic.health).toBe("outage");
+    expect(fortnite.health).toBe("operational");
+  });
+
+  it("maps plain Statuspage indicators: none/minor/major", async () => {
+    stubFetch({
+      [URLS.spotify]: json(statuspageSummary({ indicator: "none" })),
+      [URLS.chatgpt]: json(statuspageSummary({ indicator: "minor" })),
+      [URLS.claude]: json(statuspageSummary({ indicator: "major" })),
+    });
+    const services = await collectAllServices();
+    expect(services.find((s) => s.id === "spotify")!.health).toBe("operational");
+    expect(services.find((s) => s.id === "chatgpt")!.health).toBe("degraded");
+    expect(services.find((s) => s.id === "claude")!.health).toBe("outage");
+  });
+
+  it("maps plain Statuspage indicators: critical/maintenance", async () => {
+    stubFetch({
+      [URLS.spotify]: json(statuspageSummary({ indicator: "critical" })),
+      [URLS.chatgpt]: json(statuspageSummary({ indicator: "maintenance" })),
+    });
+    const services = await collectAllServices();
+    expect(services.find((s) => s.id === "spotify")!.health).toBe("outage");
+    expect(services.find((s) => s.id === "chatgpt")!.health).toBe("maintenance");
+  });
+
+  it("Google Cloud incidents.json: only open incidents count, and health worsens with them", async () => {
+    stubFetch({
+      [URLS.gcp]: json([
+        googleIncident({ id: "closed", end: "2026-09-19T00:00:00Z" }),
+        googleIncident({ id: "open", status_impact: "SERVICE_OUTAGE" }),
+      ]),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "gcp")!;
+    expect(snapshot.health).toBe("outage");
+    expect(snapshot.incidents).toHaveLength(1);
+    expect(snapshot.incidents[0].id).toBe("open");
+  });
+
+  it("Google Cloud incidents.json: an ended incident alone is operational", async () => {
+    stubFetch({
+      [URLS.gcp]: json([googleIncident({ id: "closed", end: "2026-09-19T00:00:00Z" })]),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "gcp")!;
+    expect(snapshot.health).toBe("operational");
+    expect(snapshot.incidents).toHaveLength(0);
+  });
+
+  it("Google Play incidents.json: an ended incident alone is operational", async () => {
+    stubFetch({
+      [URLS.android]: json([googleIncident({ id: "closed", end: "2026-09-19T00:00:00Z" })]),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "android")!;
+    expect(snapshot.health).toBe("operational");
+    expect(snapshot.incidents).toHaveLength(0);
   });
 
   it("Steam: both endpoints returning a well-shaped payload is operational", async () => {
@@ -275,5 +407,77 @@ describe("collectAllServices against stubbed vendor payloads", () => {
       const snapshot = services.find((s) => s.id === "cs2-europe")!;
       expect(snapshot.health).toBe("operational");
     });
+  });
+
+  it("Apple: an active event makes that service's component non-operational, with a millisecond epoch preserved", async () => {
+    const epochMs = 1693440600000; // 13-digit ms epoch; a *1000 regression would push this decades into the future
+    stubFetch({
+      [URLS.apple]: json({
+        services: [
+          {
+            serviceName: "iCloud Mail",
+            events: [
+              {
+                eventStatus: "ongoing",
+                statusType: "outage",
+                message: "Some users are affected",
+                epochStartDate: epochMs,
+                datePosted: "2026-08-30 12:30:00 UTC",
+              },
+            ],
+          },
+          {
+            serviceName: "App Store",
+            events: [],
+          },
+        ],
+      }),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "apple")!;
+    expect(snapshot.health).toBe("outage");
+    // statusType "outage" maps to Health "outage" (see appleEventHealth).
+    expect(snapshot.components.find((c) => c.name === "iCloud Mail")?.health).toBe("outage");
+    // Only services with an active event get a component; App Store, whose
+    // events array is empty, must not appear.
+    expect(snapshot.components.map((c) => c.name)).toEqual(["iCloud Mail"]);
+    expect(snapshot.incidents[0].startedAt).toBe(new Date(epochMs).toISOString());
+  });
+
+  it("a vendor returning HTTP 403 marks the service unknown with an http failure naming the vendor host", async () => {
+    stubFetch({
+      [URLS.spotify]: text("Forbidden", { status: 403, statusText: "Forbidden" }),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "spotify")!;
+    expect(snapshot.health).toBe("unknown");
+    expect(snapshot.failure?.kind).toBe("http");
+    expect(snapshot.failure?.status).toBe(403);
+    expect(snapshot.summary).toContain("spotify.statuspage.io");
+    expect(snapshot.summary).not.toContain("/api/v2/summary.json");
+
+    const warnCalls = (console.warn as ReturnType<typeof vi.fn>).mock.calls;
+    const failureLine = warnCalls.map((call) => String(call[0])).find((line) => {
+      try {
+        const parsed = JSON.parse(line);
+        return parsed.event === "collector_failed" && parsed.service === "spotify";
+      } catch {
+        return false;
+      }
+    });
+    expect(failureLine).toBeDefined();
+  });
+
+  it("a payload that parses but has the wrong shape is a parser failure", async () => {
+    // Valid JSON, but not an array: googleIncidents iterates with .filter,
+    // which does not exist on a plain object, so a TypeError escapes the
+    // collector and classifyFailure reports it as "parser".
+    stubFetch({
+      [URLS.gcp]: json({ not: "an array" }),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "gcp")!;
+    expect(snapshot.health).toBe("unknown");
+    expect(snapshot.failure?.kind).toBe("parser");
   });
 });
