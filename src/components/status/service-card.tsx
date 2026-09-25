@@ -58,10 +58,10 @@ export function ServiceCard({
     <article
       id={serviceAnchor(service.id)}
       className={cn(
-        "group relative flex scroll-mt-6 flex-col rounded-3xl glass p-4 transition-[box-shadow,transform] duration-[var(--motion-fast)] ease-[var(--ease-smooth-out)] hover:shadow-[var(--shadow-border-hover)] stagger-in",
+        "spotlight group relative flex scroll-mt-6 flex-col rounded-3xl glass p-4 transition-[box-shadow,transform] duration-[var(--motion-fast)] ease-[var(--ease-smooth-out)] hover:shadow-[var(--shadow-border-hover)] stagger-in",
         emphasized && (service.health === "outage" ? "service-card-changed is-down" : "service-card-changed"),
       )}
-      style={{ animationDelay: `${Math.min(index, 12) * 40}ms` }}
+      style={{ animationDelay: `${Math.min(index, 12) * 40}ms`, viewTransitionName: `vt-${service.id}` }}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
@@ -185,10 +185,10 @@ export function ServiceTile({
     <article
       id={serviceAnchor(service.id)}
       className={cn(
-        "flex scroll-mt-6 items-center gap-3 rounded-2xl glass py-2 pr-1.5 pl-3 stagger-in",
+        "spotlight flex scroll-mt-6 items-center gap-3 rounded-2xl glass py-2 pr-1.5 pl-3 stagger-in",
         emphasized && "service-card-changed",
       )}
-      style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
+      style={{ animationDelay: `${Math.min(index, 12) * 30}ms`, viewTransitionName: `vt-${service.id}` }}
     >
       <span className="grid size-9 shrink-0 place-items-center rounded-xl glass-inset text-ok" aria-hidden>
         <Icon className="size-4" strokeWidth={1.75} />

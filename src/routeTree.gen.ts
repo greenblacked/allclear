@@ -10,33 +10,64 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as FeedDotxmlRouteImport } from './routes/feed[.]xml'
+import { Route as ApiStatusDotjsonRouteImport } from './routes/api/status[.]json'
+import { Route as ApiBadgeServiceRouteImport } from './routes/api/badge/$service'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FeedDotxmlRoute = FeedDotxmlRouteImport.update({
+  id: '/feed.xml',
+  path: '/feed.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiStatusDotjsonRoute = ApiStatusDotjsonRouteImport.update({
+  id: '/api/status.json',
+  path: '/api/status.json',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBadgeServiceRoute = ApiBadgeServiceRouteImport.update({
+  id: '/api/badge/$service',
+  path: '/api/badge/$service',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/feed.xml': typeof FeedDotxmlRoute
+  '/api/status.json': typeof ApiStatusDotjsonRoute
+  '/api/badge/$service': typeof ApiBadgeServiceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/feed.xml': typeof FeedDotxmlRoute
+  '/api/status.json': typeof ApiStatusDotjsonRoute
+  '/api/badge/$service': typeof ApiBadgeServiceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/feed.xml': typeof FeedDotxmlRoute
+  '/api/status.json': typeof ApiStatusDotjsonRoute
+  '/api/badge/$service': typeof ApiBadgeServiceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/feed.xml' | '/api/status.json' | '/api/badge/$service'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/feed.xml' | '/api/status.json' | '/api/badge/$service'
+  id:
+    '__root__' | '/' | '/feed.xml' | '/api/status.json' | '/api/badge/$service'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  FeedDotxmlRoute: typeof FeedDotxmlRoute
+  ApiStatusDotjsonRoute: typeof ApiStatusDotjsonRoute
+  ApiBadgeServiceRoute: typeof ApiBadgeServiceRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +79,35 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/feed.xml': {
+      id: '/feed.xml'
+      path: '/feed.xml'
+      fullPath: '/feed.xml'
+      preLoaderRoute: typeof FeedDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/status.json': {
+      id: '/api/status.json'
+      path: '/api/status.json'
+      fullPath: '/api/status.json'
+      preLoaderRoute: typeof ApiStatusDotjsonRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/badge/$service': {
+      id: '/api/badge/$service'
+      path: '/api/badge/$service'
+      fullPath: '/api/badge/$service'
+      preLoaderRoute: typeof ApiBadgeServiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  FeedDotxmlRoute: FeedDotxmlRoute,
+  ApiStatusDotjsonRoute: ApiStatusDotjsonRoute,
+  ApiBadgeServiceRoute: ApiBadgeServiceRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
