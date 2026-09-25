@@ -11,12 +11,14 @@ Each release's section becomes its GitHub Release notes, so write entries for so
 - A public JSON API at `/api/status.json`, with the board's overall health, headline and every service's status and incidents.
 - An Atom feed at `/feed.xml` with one entry per service that needs attention. Subscribe Slack, Microsoft Teams, Discord or a feed reader to it for alerts without code.
 - Shields.io status badges at `/api/badge/<service>`, and `/api/badge/board` for the whole board.
+- Opt-in browser notifications: switch on the bell and the board tells you when a service changes while its tab is in the background.
 
 ### Changed
 
 - The board opens with one line naming the worst problem, such as "Outage: Apple", with links to every service that needs attention.
 - Services that need attention come first, worst first. Operational services are compact one-line tiles, and the release trackers have their own section.
 - The filters show how many services each one matches, and the browser tab shows how many need attention.
+- Livelier board: cards catch a soft light under the pointer, the summary counts roll to their new values, the headline dot pulses while something is wrong, a card that just changed flashes, and **Refresh** glides cards to their new places. All of it switches off when the system asks for reduced motion.
 
 ### Fixed
 

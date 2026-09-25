@@ -52,6 +52,7 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
+      { rel: "alternate", type: "application/atom+xml", title: `${APP_NAME} incidents`, href: "/feed.xml" },
       { rel: "stylesheet", href: appCss },
       // /__grok/manifest.webmanifest and /__grok/icon-180.png are gone: they
       // were hosting-template leftovers with no file in public/, so both 404.

@@ -1,10 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Search } from "lucide-react";
+import { Bell, BellOff, BellRing, RefreshCw, Search } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useCountUp, useSpotlight, withViewTransition } from "@/components/status/effects";
 import { HealthDot } from "@/components/status/health-dot";
 import { LiveBar } from "@/components/status/live-bar";
 import { ServiceCard, ServiceTile } from "@/components/status/service-card";
 import { UpdateFeed } from "@/components/status/update-feed";
+import { type AlertsState, useBoardAlerts } from "@/components/status/use-alerts";
 import { useNow } from "@/components/status/use-now";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +40,8 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
   const [store, setStore] = useState<PulseStore | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const manualRefreshInFlight = useRef(false);
+  const mainRef = useRef<HTMLElement>(null);
+  useSpotlight(mainRef);
 
   const boardQuery = useQuery({
     queryKey: ["status-board"],
@@ -61,6 +65,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
 
   const board = boardQuery.data ?? initial;
   const headline = boardHeadline(board);
+  const alerts = useBoardAlerts(board);
   const pulseStore = store ?? emptyPulseStore();
   const changedIds = new Set(
     (pulseStore.pulses[0]?.opening ? [] : pulseStore.pulses[0]?.changes ?? []).map(
@@ -107,7 +112,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
     setRefreshing(true);
     try {
       const next = await refreshStatusBoard();
-      queryClient.setQueryData(["status-board"], next);
+      withViewTransition(() => queryClient.setQueryData(["status-board"], next));
     } catch {
       await boardQuery.refetch();
     } finally {
@@ -135,17 +140,20 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
                 Official vendor status for {board.services.length} services, checked every two minutes.
               </p>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={() => void handleRefresh()}
-              disabled={fetching}
-              aria-label="Refresh status now"
-            >
-              <RefreshCw className={cn("size-3.5", fetching && "animate-spin")} />
-              <span className="hidden sm:inline">Refresh</span>
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <AlertsButton state={alerts.state} onToggle={alerts.toggle} />
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => void handleRefresh()}
+                disabled={fetching}
+                aria-label="Refresh status now"
+              >
+                <RefreshCw className={cn("size-3.5", fetching && "animate-spin")} />
+                <span className="hidden sm:inline">Refresh</span>
+              </Button>
+            </div>
           </div>
 
           <SummaryPanel board={board} headline={headline} fetching={fetching} now={now} />
@@ -194,7 +202,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
           </div>
         </header>
 
-        <main className="relative mx-auto max-w-6xl px-4 pb-20 sm:px-6">
+        <main ref={mainRef} className="relative mx-auto max-w-6xl px-4 pb-20 sm:px-6">
           {boardQuery.isError ? (
             <p className="mb-4 rounded-2xl glass px-4 py-3 text-sm text-down">
               Could not refresh official sources. Showing the last successful snapshot.
@@ -262,6 +270,21 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
               Spotify, Apple, MikroTik, xAI, OpenAI, or Anthropic.
             </p>
             <p>Cached server snapshots update every two minutes from official vendor feeds.</p>
+            <p>
+              Use the board elsewhere:{" "}
+              <a className="underline decoration-border underline-offset-4 hover:text-fg" href="/api/status.json">
+                JSON API
+              </a>
+              {" · "}
+              <a className="underline decoration-border underline-offset-4 hover:text-fg" href="/feed.xml">
+                Atom feed
+              </a>{" "}
+              for Slack, Teams and feed readers ·{" "}
+              <a className="underline decoration-border underline-offset-4 hover:text-fg" href="/api/badge/board">
+                status badges
+              </a>
+              .
+            </p>
           </footer>
         </main>
       </div>
@@ -318,7 +341,7 @@ function SummaryPanel({
             id="board-headline"
             className="flex items-center gap-3 font-display text-2xl font-medium tracking-[-0.03em] text-balance sm:text-3xl"
           >
-            <HealthDot health={headline.tone} className="size-2.5" />
+            <HealthDot health={headline.tone} ping={headline.tone !== "operational"} className="size-2.5" />
             {headline.title}
           </h2>
           <p className="mt-1.5 font-mono text-[11px] tabular-nums text-subtle">
@@ -341,9 +364,9 @@ function SummaryPanel({
           ) : null}
         </div>
         <dl className="grid shrink-0 grid-cols-3 gap-6 sm:gap-10">
-          <Stat label="Operational" value={`${board.counts.operational}/${total}`} />
+          <Stat label="Operational" value={board.counts.operational} of={total} />
           <Stat label="Attention" value={attention} />
-          <Stat label="Sources" value={`${total - board.counts.unknown}/${total}`} />
+          <Stat label="Sources" value={total - board.counts.unknown} of={total} />
         </dl>
       </div>
       <LiveBar checkedAt={board.generatedAt} isFetching={fetching} now={now} className="mt-5 border-t border-border pt-4" />
@@ -351,11 +374,41 @@ function SummaryPanel({
   );
 }
 
-function Stat({ label, value }: { label: string; value: number | string }) {
+function Stat({ label, value, of }: { label: string; value: number; of?: number }) {
+  const shown = useCountUp(value);
   return (
     <div>
       <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-subtle">{label}</dt>
-      <dd className="mt-1 font-display text-2xl tabular-nums tracking-[-0.03em]">{value}</dd>
+      <dd className="mt-1 font-display text-2xl tabular-nums tracking-[-0.03em]">
+        {shown}
+        {of !== undefined ? <span className="text-subtle">/{of}</span> : null}
+      </dd>
     </div>
+  );
+}
+
+const ALERT_LABEL: Record<AlertsState, string> = {
+  unsupported: "Alerts are not supported in this browser",
+  off: "Get a browser alert when a service changes",
+  on: "Browser alerts are on; click to turn them off",
+  blocked: "Alerts are blocked in this browser's site settings",
+};
+
+function AlertsButton({ state, onToggle }: { state: AlertsState; onToggle: () => void }) {
+  if (state === "unsupported") return null;
+  const Icon = state === "on" ? BellRing : state === "blocked" ? BellOff : Bell;
+  return (
+    <Button
+      variant={state === "on" ? "default" : "outline"}
+      size="sm"
+      onClick={onToggle}
+      disabled={state === "blocked"}
+      aria-pressed={state === "on"}
+      aria-label={ALERT_LABEL[state]}
+      title={ALERT_LABEL[state]}
+    >
+      <Icon className="size-3.5" />
+      <span className="hidden sm:inline">Alerts</span>
+    </Button>
   );
 }
