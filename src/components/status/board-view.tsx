@@ -403,8 +403,10 @@ function AlertsButton({ state, onToggle }: { state: AlertsState; onToggle: () =>
       size="sm"
       onClick={onToggle}
       disabled={state === "blocked"}
+      // A toggle keeps one name and lets aria-pressed carry the state; the
+      // title explains the current state to pointer users.
       aria-pressed={state === "on"}
-      aria-label={ALERT_LABEL[state]}
+      aria-label="Browser alerts"
       title={ALERT_LABEL[state]}
     >
       <Icon className="size-3.5" />
