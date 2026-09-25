@@ -1,0 +1,483 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { collectAllServices } from "./sources.server.ts";
+
+// Vendor endpoints used by src/lib/status/sources.server.ts collectors.
+// Keep these in sync with the URLs the collectors actually fetch.
+const URLS = {
+  gcp: "https://status.cloud.google.com/incidents.json",
+  steamServerInfo: "https://api.steampowered.com/ISteamWebAPIUtil/GetServerInfo/v1/",
+  steamFeatured: "https://store.steampowered.com/api/featured/",
+  cs2Sdr: "https://api.steampowered.com/ISteamApps/GetSDRConfig/v1/?appid=730",
+  cs2Players: "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=730",
+  epicFortnite: "https://status.epicgames.com/api/v2/summary.json",
+  spotify: "https://spotify.statuspage.io/api/v2/summary.json",
+  apple: "https://www.apple.com/support/systemstatus/data/system_status_en_US.js",
+  android: "https://status.play.google.com/incidents.json",
+  chatgpt: "https://status.openai.com/api/v2/summary.json",
+  claude: "https://status.claude.com/api/v2/summary.json",
+};
+
+type Handler = () => Response | Promise<Response>;
+
+function json(body: unknown, init: { status?: number; statusText?: string } = {}): Handler {
+  return () =>
+    new Response(JSON.stringify(body), {
+      status: init.status ?? 200,
+      statusText: init.statusText,
+      headers: { "content-type": "application/json" },
+    });
+}
+
+function text(body: string, init: { status?: number; statusText?: string } = {}): Handler {
+  return () =>
+    new Response(body, {
+      status: init.status ?? 200,
+      statusText: init.statusText,
+      headers: { "content-type": "text/xml" },
+    });
+}
+
+// Simulates a network-level failure (DNS, connection reset, …) rather than
+// an HTTP error response: the handler rejects instead of returning a Response.
+function networkError(message = "fetch failed"): Handler {
+  return () => Promise.reject(new TypeError(message));
+}
+
+function stubFetch(routes: Partial<Record<string, Handler>>) {
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const handler = routes[url];
+    if (!handler) return new Response("not found", { status: 404, statusText: "Not Found" });
+    return handler();
+  });
+}
+
+// Minimal but shape-correct Statuspage summary.json fixture.
+function statuspageSummary(overrides: {
+  indicator?: string;
+  components?: Array<{ id: string; name: string; status: string; group?: boolean }>;
+  incidents?: Array<{ id: string; name: string; status: string; impact?: string }>;
+}) {
+  return {
+    status: { indicator: overrides.indicator ?? "none", description: "All Systems Operational" },
+    components: overrides.components ?? [],
+    incidents: overrides.incidents ?? [],
+    scheduled_maintenances: [],
+  };
+}
+
+function googleIncident(overrides: Partial<{
+  id: string;
+  begin: string;
+  end: string | null;
+  modified: string;
+  external_desc: string;
+  status_impact: string;
+  severity: string;
+  service_name: string;
+  uri: string;
+}>) {
+  return {
+    id: "incident-1",
+    begin: "2026-09-20T00:00:00Z",
+    external_desc: "Elevated errors",
+    status_impact: "SERVICE_OUTAGE",
+    service_name: "Compute Engine",
+    uri: "/incidents/incident-1",
+    ...overrides,
+  };
+}
+
+describe("collectAllServices against stubbed vendor payloads", () => {
+  beforeEach(() => {
+    // A safety net: if a test forgets to call stubFetch, every URL 404s
+    // instead of the real global fetch reaching out to the network.
+    stubFetch({});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("splits Epic and Fortnite from the same Statuspage summary: a degraded Fortnite leaves Epic operational", async () => {
+    const summary = statuspageSummary({
+      components: [
+        { id: "1", name: "Fortnite", status: "partial_outage" },
+        { id: "2", name: "Store", status: "operational" },
+      ],
+    });
+    stubFetch({ [URLS.epicFortnite]: json(summary) });
+    const services = await collectAllServices();
+    const epic = services.find((s) => s.id === "epic")!;
+    const fortnite = services.find((s) => s.id === "fortnite")!;
+    expect(epic.health).toBe("operational");
+    expect(fortnite.health).toBe("degraded");
+  });
+
+  it("splits Epic and Fortnite the other way: a degraded Epic component leaves Fortnite operational", async () => {
+    const summary = statuspageSummary({
+      components: [
+        { id: "1", name: "Fortnite", status: "operational" },
+        { id: "2", name: "Accounts", status: "major_outage" },
+      ],
+    });
+    stubFetch({ [URLS.epicFortnite]: json(summary) });
+    const services = await collectAllServices();
+    const epic = services.find((s) => s.id === "epic")!;
+    const fortnite = services.find((s) => s.id === "fortnite")!;
+    expect(epic.health).toBe("outage");
+    expect(fortnite.health).toBe("operational");
+  });
+
+  it("maps plain Statuspage indicators: none/minor/major", async () => {
+    stubFetch({
+      [URLS.spotify]: json(statuspageSummary({ indicator: "none" })),
+      [URLS.chatgpt]: json(statuspageSummary({ indicator: "minor" })),
+      [URLS.claude]: json(statuspageSummary({ indicator: "major" })),
+    });
+    const services = await collectAllServices();
+    expect(services.find((s) => s.id === "spotify")!.health).toBe("operational");
+    expect(services.find((s) => s.id === "chatgpt")!.health).toBe("degraded");
+    expect(services.find((s) => s.id === "claude")!.health).toBe("outage");
+  });
+
+  it("maps plain Statuspage indicators: critical/maintenance", async () => {
+    stubFetch({
+      [URLS.spotify]: json(statuspageSummary({ indicator: "critical" })),
+      [URLS.chatgpt]: json(statuspageSummary({ indicator: "maintenance" })),
+    });
+    const services = await collectAllServices();
+    expect(services.find((s) => s.id === "spotify")!.health).toBe("outage");
+    expect(services.find((s) => s.id === "chatgpt")!.health).toBe("maintenance");
+  });
+
+  it("Google Cloud incidents.json: only open incidents count, and health worsens with them", async () => {
+    stubFetch({
+      [URLS.gcp]: json([
+        googleIncident({ id: "closed", end: "2026-09-19T00:00:00Z" }),
+        googleIncident({ id: "open", status_impact: "SERVICE_OUTAGE" }),
+      ]),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "gcp")!;
+    expect(snapshot.health).toBe("outage");
+    expect(snapshot.incidents).toHaveLength(1);
+    expect(snapshot.incidents[0].id).toBe("open");
+  });
+
+  it("Google Cloud incidents.json: an ended incident alone is operational", async () => {
+    stubFetch({
+      [URLS.gcp]: json([googleIncident({ id: "closed", end: "2026-09-19T00:00:00Z" })]),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "gcp")!;
+    expect(snapshot.health).toBe("operational");
+    expect(snapshot.incidents).toHaveLength(0);
+  });
+
+  it("Google Play incidents.json: an ended incident alone is operational", async () => {
+    stubFetch({
+      [URLS.android]: json([googleIncident({ id: "closed", end: "2026-09-19T00:00:00Z" })]),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "android")!;
+    expect(snapshot.health).toBe("operational");
+    expect(snapshot.incidents).toHaveLength(0);
+  });
+
+  it("Steam: both endpoints returning a well-shaped payload is operational", async () => {
+    stubFetch({
+      [URLS.steamServerInfo]: json({ servertime: 1758000000 }),
+      [URLS.steamFeatured]: json({ featured_win: [{ id: 1 }] }),
+    });
+    const services = await collectAllServices();
+    expect(services.find((s) => s.id === "steam")!.health).toBe("operational");
+  });
+
+  it("Steam: one endpoint answering with the wrong shape (still 200) is degraded", async () => {
+    stubFetch({
+      [URLS.steamServerInfo]: json({ servertime: 1758000000 }),
+      [URLS.steamFeatured]: json({ not_featured_win: [] }), // wrong shape, still HTTP 200
+    });
+    const services = await collectAllServices();
+    expect(services.find((s) => s.id === "steam")!.health).toBe("degraded");
+  });
+
+  it("Steam: a 503 from one endpoint is degraded, with that endpoint's component non-operational", async () => {
+    stubFetch({
+      [URLS.steamServerInfo]: json({ servertime: 1758000000 }),
+      [URLS.steamFeatured]: text("service unavailable", { status: 503, statusText: "Service Unavailable" }),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "steam")!;
+    expect(snapshot.health).toBe("degraded");
+    expect(snapshot.components.find((c) => c.name === "Steam Store")).toMatchObject({
+      health: "outage",
+      detail: "503 Service Unavailable from store.steampowered.com",
+    });
+    expect(snapshot.components.find((c) => c.name === "Steam Web API")?.health).toBe("operational");
+  });
+
+  it("Steam: a network error on one endpoint is degraded, with that endpoint's component non-operational", async () => {
+    stubFetch({
+      [URLS.steamServerInfo]: networkError(),
+      [URLS.steamFeatured]: json({ featured_win: [{ id: 1 }] }),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "steam")!;
+    expect(snapshot.health).toBe("degraded");
+    expect(snapshot.components.find((c) => c.name === "Steam Web API")?.health).toBe("outage");
+    expect(snapshot.components.find((c) => c.name === "Steam Store")?.health).toBe("operational");
+  });
+
+  it("Steam: a null body (still 200) on one endpoint is degraded, not a TypeError", async () => {
+    stubFetch({
+      [URLS.steamServerInfo]: json({ servertime: 1758000000 }),
+      [URLS.steamFeatured]: json(null),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "steam")!;
+    expect(snapshot.health).toBe("degraded");
+    expect(snapshot.components.find((c) => c.name === "Steam Store")?.detail).toBe("Unexpected response shape.");
+  });
+
+  it("Steam: a rejection on one endpoint and a wrong shape on the other reports the rejection", async () => {
+    stubFetch({
+      [URLS.steamServerInfo]: text("service unavailable", { status: 503, statusText: "Service Unavailable" }),
+      [URLS.steamFeatured]: json(null),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "steam")!;
+    expect(snapshot.health).toBe("unknown");
+    expect(snapshot.failure).toMatchObject({ kind: "http", status: 503 });
+  });
+
+  it("Steam: both endpoints answering with the wrong shape (still 200) is unknown with a parser failure", async () => {
+    stubFetch({
+      [URLS.steamServerInfo]: json({ servertime: "not-a-number" }),
+      [URLS.steamFeatured]: json({ not_featured_win: [] }),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "steam")!;
+    expect(snapshot.health).toBe("unknown");
+    expect(snapshot.failure?.kind).toBe("parser");
+  });
+
+  it("Steam: both endpoints returning a 503 is unknown with an http failure", async () => {
+    stubFetch({
+      [URLS.steamServerInfo]: text("service unavailable", { status: 503, statusText: "Service Unavailable" }),
+      [URLS.steamFeatured]: text("service unavailable", { status: 503, statusText: "Service Unavailable" }),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "steam")!;
+    expect(snapshot.health).toBe("unknown");
+    expect(snapshot.failure?.kind).toBe("http");
+    expect(snapshot.failure?.status).toBe(503);
+  });
+
+  type PopFixture = { desc: string; geo: number[]; relays: Array<{ ipv4: string }> };
+
+  // All 11 codes in sources.server.ts's EU_POPS set, so "N EU pops" fixtures
+  // below don't depend on the description/geo fallback matching too.
+  const ALL_EU_POP_CODES = ["ams", "fra", "fsn", "hel", "lhr", "mad", "par", "sto", "sto2", "vie", "waw"];
+
+  function euPops(codes: string[], relayingCount: number): Record<string, PopFixture> {
+    const pops: Record<string, PopFixture> = {};
+    codes.forEach((code, index) => {
+      pops[code] = {
+        desc: `${code.toUpperCase()} Europe`,
+        geo: [10, 50],
+        relays: index < relayingCount ? [{ ipv4: "1.2.3.4" }] : [],
+      };
+    });
+    return pops;
+  }
+
+  describe("CS2 Europe", () => {
+    it("11 EU pops, 4 relaying, is degraded (below 40%)", async () => {
+      stubFetch({
+        [URLS.cs2Sdr]: json({ success: true, pops: euPops(ALL_EU_POP_CODES, 4) }),
+        [URLS.cs2Players]: json({ response: { player_count: 500000, result: 1 } }),
+      });
+      const services = await collectAllServices();
+      expect(services.find((s) => s.id === "cs2-europe")!.health).toBe("degraded");
+    });
+
+    it("11 EU pops, 5 relaying, is operational (pins the 40% threshold)", async () => {
+      stubFetch({
+        [URLS.cs2Sdr]: json({ success: true, pops: euPops(ALL_EU_POP_CODES, 5) }),
+        [URLS.cs2Players]: json({ response: { player_count: 500000, result: 1 } }),
+      });
+      const services = await collectAllServices();
+      expect(services.find((s) => s.id === "cs2-europe")!.health).toBe("operational");
+    });
+
+    it("5 EU pops, 3 relaying, is operational", async () => {
+      stubFetch({
+        [URLS.cs2Sdr]: json({ success: true, pops: euPops(ALL_EU_POP_CODES.slice(0, 5), 3) }),
+        [URLS.cs2Players]: json({ response: { player_count: 500000, result: 1 } }),
+      });
+      const services = await collectAllServices();
+      const snapshot = services.find((s) => s.id === "cs2-europe")!;
+      expect(snapshot.health).toBe("operational");
+      expect(snapshot.meta?.euWithRelays).toBe(3);
+    });
+
+    it("5 EU pops, 2 relaying, is degraded (pins the absolute floor of 3)", async () => {
+      stubFetch({
+        [URLS.cs2Sdr]: json({ success: true, pops: euPops(ALL_EU_POP_CODES.slice(0, 5), 2) }),
+        [URLS.cs2Players]: json({ response: { player_count: 500000, result: 1 } }),
+      });
+      const services = await collectAllServices();
+      expect(services.find((s) => s.id === "cs2-europe")!.health).toBe("degraded");
+    });
+
+    it("excludes a non-European pop from the European count", async () => {
+      const pops: Record<string, PopFixture> = euPops(ALL_EU_POP_CODES.slice(0, 5), 5);
+      pops.iad = { desc: "Sterling (Washington DC)", geo: [-77.5, 39.0], relays: [{ ipv4: "5.6.7.8" }] };
+      stubFetch({
+        [URLS.cs2Sdr]: json({ success: true, pops }),
+        [URLS.cs2Players]: json({ response: { player_count: 500000, result: 1 } }),
+      });
+      const services = await collectAllServices();
+      const snapshot = services.find((s) => s.id === "cs2-europe")!;
+      expect(snapshot.meta?.euPops).toBe(5);
+      expect(snapshot.components.some((c) => c.name === "Sterling (Washington DC)")).toBe(false);
+    });
+
+    it("is an outage when the relay config reports failure", async () => {
+      stubFetch({
+        [URLS.cs2Sdr]: json({ success: false, pops: euPops(ALL_EU_POP_CODES, 11) }),
+        [URLS.cs2Players]: json({ response: { player_count: 500000, result: 1 } }),
+      });
+      const services = await collectAllServices();
+      expect(services.find((s) => s.id === "cs2-europe")!.health).toBe("outage");
+    });
+
+    it("is an outage when no European pops are listed", async () => {
+      stubFetch({
+        [URLS.cs2Sdr]: json({ success: true, pops: {} }),
+        [URLS.cs2Players]: json({ response: { player_count: 500000, result: 1 } }),
+      });
+      const services = await collectAllServices();
+      expect(services.find((s) => s.id === "cs2-europe")!.health).toBe("outage");
+    });
+
+    it("stays operational without a player count when that endpoint has a network error", async () => {
+      stubFetch({
+        [URLS.cs2Sdr]: json({ success: true, pops: euPops(ALL_EU_POP_CODES.slice(0, 5), 5) }),
+        [URLS.cs2Players]: networkError(),
+      });
+      const services = await collectAllServices();
+      const snapshot = services.find((s) => s.id === "cs2-europe")!;
+      expect(snapshot.health).toBe("operational");
+      expect(snapshot.summary).not.toContain("playing");
+      expect(snapshot.meta?.players).toBe(0);
+    });
+
+    it("ignores a player count that is not a number", async () => {
+      stubFetch({
+        [URLS.cs2Sdr]: json({ success: true, pops: euPops(ALL_EU_POP_CODES.slice(0, 5), 5) }),
+        [URLS.cs2Players]: json({ response: { player_count: "lots", result: 1 } }),
+      });
+      const services = await collectAllServices();
+      const snapshot = services.find((s) => s.id === "cs2-europe")!;
+      expect(snapshot.health).toBe("operational");
+      expect(snapshot.meta?.players).toBe(0);
+    });
+
+    it("an SDR-healthy card stays operational when the player count endpoint 503s", async () => {
+      stubFetch({
+        [URLS.cs2Sdr]: json({ success: true, pops: euPops(ALL_EU_POP_CODES.slice(0, 5), 5) }),
+        [URLS.cs2Players]: text("service unavailable", { status: 503, statusText: "Service Unavailable" }),
+      });
+      const services = await collectAllServices();
+      const snapshot = services.find((s) => s.id === "cs2-europe")!;
+      expect(snapshot.health).toBe("operational");
+    });
+
+    it("an SDR-healthy card stays operational when the player count body is null", async () => {
+      stubFetch({
+        [URLS.cs2Sdr]: json({ success: true, pops: euPops(ALL_EU_POP_CODES.slice(0, 5), 5) }),
+        [URLS.cs2Players]: json(null),
+      });
+      const services = await collectAllServices();
+      const snapshot = services.find((s) => s.id === "cs2-europe")!;
+      expect(snapshot.health).toBe("operational");
+    });
+  });
+
+  it("Apple: an active event makes that service's component non-operational, with a millisecond epoch preserved", async () => {
+    const epochMs = 1693440600000; // 13-digit ms epoch; a *1000 regression would push this decades into the future
+    stubFetch({
+      [URLS.apple]: json({
+        services: [
+          {
+            serviceName: "iCloud Mail",
+            events: [
+              {
+                eventStatus: "ongoing",
+                statusType: "outage",
+                message: "Some users are affected",
+                epochStartDate: epochMs,
+                datePosted: "2026-08-30 12:30:00 UTC",
+              },
+            ],
+          },
+          {
+            serviceName: "App Store",
+            events: [],
+          },
+        ],
+      }),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "apple")!;
+    expect(snapshot.health).toBe("outage");
+    // statusType "outage" maps to Health "outage" (see appleEventHealth).
+    expect(snapshot.components.find((c) => c.name === "iCloud Mail")?.health).toBe("outage");
+    // Only services with an active event get a component; App Store, whose
+    // events array is empty, must not appear.
+    expect(snapshot.components.map((c) => c.name)).toEqual(["iCloud Mail"]);
+    expect(snapshot.incidents[0].startedAt).toBe(new Date(epochMs).toISOString());
+  });
+
+  it("a vendor returning HTTP 403 marks the service unknown with an http failure naming the vendor host", async () => {
+    stubFetch({
+      [URLS.spotify]: text("Forbidden", { status: 403, statusText: "Forbidden" }),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "spotify")!;
+    expect(snapshot.health).toBe("unknown");
+    expect(snapshot.failure?.kind).toBe("http");
+    expect(snapshot.failure?.status).toBe(403);
+    expect(snapshot.summary).toContain("spotify.statuspage.io");
+    expect(snapshot.summary).not.toContain("/api/v2/summary.json");
+
+    const warnCalls = (console.warn as ReturnType<typeof vi.fn>).mock.calls;
+    const failureLine = warnCalls.map((call) => String(call[0])).find((line) => {
+      try {
+        const parsed = JSON.parse(line);
+        return parsed.event === "collector_failed" && parsed.service === "spotify";
+      } catch {
+        return false;
+      }
+    });
+    expect(failureLine).toBeDefined();
+  });
+
+  it("a payload that parses but has the wrong shape is a parser failure", async () => {
+    // Valid JSON, but not an array: googleIncidents iterates with .filter,
+    // which does not exist on a plain object, so a TypeError escapes the
+    // collector and classifyFailure reports it as "parser".
+    stubFetch({
+      [URLS.gcp]: json({ not: "an array" }),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "gcp")!;
+    expect(snapshot.health).toBe("unknown");
+    expect(snapshot.failure?.kind).toBe("parser");
+  });
+});

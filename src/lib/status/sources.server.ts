@@ -361,27 +361,37 @@ async function collectAws(): Promise<ServiceSnapshot> {
 async function collectSteam(): Promise<ServiceSnapshot> {
   const started = Date.now();
   try {
-    const [info, store] = await Promise.all([
-      timed(() => fetchJson<{ servertime?: number }>("https://api.steampowered.com/ISteamWebAPIUtil/GetServerInfo/v1/")),
-      timed(() =>
-        fetchJson<{ featured_win?: unknown[] }>("https://store.steampowered.com/api/featured/"),
-      ),
+    // allSettled, not all: one endpoint being down should degrade the card,
+    // not blank it. Only when neither answers usefully do we fail the whole
+    // collector, and with the real error rather than a generic outage.
+    const [info, store] = await Promise.allSettled([
+      fetchJson<{ servertime?: unknown } | null>("https://api.steampowered.com/ISteamWebAPIUtil/GetServerInfo/v1/"),
+      fetchJson<{ featured_win?: unknown } | null>("https://store.steampowered.com/api/featured/"),
     ]);
-    const ms = Math.max(info.ms, store.ms);
-    const apiOk = typeof info.value.servertime === "number";
-    const storeOk = Array.isArray(store.value.featured_win);
-    let health: Health = apiOk && storeOk ? "operational" : apiOk || storeOk ? "degraded" : "outage";
+    const servertime = info.status === "fulfilled" ? info.value?.servertime : undefined;
+    const apiOk = typeof servertime === "number";
+    const storeOk = store.status === "fulfilled" && Array.isArray(store.value?.featured_win);
+    if (!apiOk && !storeOk) {
+      if (info.status === "rejected") throw info.reason;
+      if (store.status === "rejected") throw store.reason;
+      throw new PayloadError("Steam Web API and Store answered in an unexpected shape.");
+    }
+    // The half that failed says why on its component, so a Degraded card is
+    // never left without a reason.
+    const why = (result: PromiseSettledResult<unknown>) =>
+      result.status === "rejected" ? classifyFailure(result.reason).message : "Unexpected response shape.";
+    const health: Health = apiOk && storeOk ? "operational" : "degraded";
     const components: ComponentHealth[] = [
-      { name: "Steam Web API", health: apiOk ? "operational" : "outage" },
-      { name: "Steam Store", health: storeOk ? "operational" : "outage" },
+      apiOk ? { name: "Steam Web API", health: "operational" } : { name: "Steam Web API", health: "outage", detail: why(info) },
+      storeOk ? { name: "Steam Store", health: "operational" } : { name: "Steam Store", health: "outage", detail: why(store) },
     ];
     return {
-      ...base("steam", new Date().toISOString(), ms),
+      ...base("steam", new Date().toISOString(), Date.now() - started),
       health,
       summary: overallSummary(health, 0, health === "operational" ? "Web API and Store responding." : undefined),
       components,
       incidents: [],
-      meta: { servertime: info.value.servertime ?? 0 },
+      meta: { servertime: apiOk ? servertime : 0 },
     };
   } catch (error) {
     return failed("steam", started, error);
@@ -401,15 +411,18 @@ function isEuropePop(code: string, desc: string, geo?: number[]): boolean {
 async function collectCs2Europe(): Promise<ServiceSnapshot> {
   const started = Date.now();
   try {
+    // The player count is a nice-to-have, not part of the health signal: a
+    // failure or an unreadable body here must never take the whole card
+    // down, so it is caught locally and simply omitted.
     const [sdr, players] = await Promise.all([
       timed(() => fetchJson<SteamSdr>("https://api.steampowered.com/ISteamApps/GetSDRConfig/v1/?appid=730")),
       timed(() =>
         fetchJson<{ response?: { player_count?: number; result?: number } }>(
           "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=730",
         ),
-      ),
+      ).catch(() => null),
     ]);
-    const ms = Math.max(sdr.ms, players.ms);
+    const ms = Math.max(sdr.ms, players?.ms ?? 0);
     const pops = sdr.value.pops ?? {};
     const europe = Object.entries(pops)
       .filter(([code, pop]) => isEuropePop(code, pop.desc ?? "", pop.geo))
@@ -422,10 +435,13 @@ async function collectCs2Europe(): Promise<ServiceSnapshot> {
 
     const withRelays = europe.filter((pop) => pop.relays > 0);
     const silent = europe.filter((pop) => pop.relays === 0);
-    const playerCount = players.value.response?.player_count;
+    const playerCount = players?.value?.response?.player_count;
     let health: Health = "operational";
     if (!sdr.value.success || europe.length === 0) health = "outage";
-    else if (withRelays.length < Math.max(3, Math.floor(europe.length * 0.4))) health = "degraded";
+    // Fewer than 3, or fewer than 40%, of the European pops publish relays.
+    // Cross-multiplied to avoid `Math.floor` quietly loosening the 40% bar
+    // for pop counts that are not a multiple of 5.
+    else if (withRelays.length < 3 || withRelays.length * 5 < europe.length * 2) health = "degraded";
 
     const components: ComponentHealth[] = withRelays.map((pop) => ({
       name: pop.desc,
@@ -456,7 +472,7 @@ async function collectCs2Europe(): Promise<ServiceSnapshot> {
       meta: {
         euPops: europe.length,
         euWithRelays: withRelays.length,
-        players: playerCount ?? 0,
+        players: typeof playerCount === "number" ? playerCount : 0,
       },
     };
   } catch (error) {
@@ -573,21 +589,104 @@ async function collectAndroid(): Promise<ServiceSnapshot> {
   }
 }
 
+// Only strip comments and things that look like tags (`<` or `</` followed by
+// a letter). A blanket `<[^>]+>` also ate a decoded "Latency < 500ms", which
+// erased "Status: Resolved" from an otherwise operational item. Plain text
+// such as "a<b ... c>d" still reads as a tag; regex stripping cannot tell.
 function stripHtml(value: string): string {
-  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .replace(/<!--[\s\S]*?-->|<\/?[a-zA-Z][^<>]*>/g, " ")
+    .replace(/&nbsp;|&#160;|&#xa0;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function parseRssItems(xml: string): Array<{ title: string; description: string; pubDate?: string; link?: string }> {
+const XML_NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+};
+
+// Matches the five predefined XML entities plus decimal and hex numeric
+// character references. A single pass with a replacer keeps `&amp;lt;` as
+// `&lt;` rather than double-decoding it into `<`: once `&amp;` becomes `&`,
+// the regex has already moved past it and never re-scans the result.
+const XML_ENTITY_RE = /&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]*);/g;
+
+export function decodeXmlEntities(text: string): string {
+  return text.replace(XML_ENTITY_RE, (match, body: string) => {
+    if (body[0] === "#") {
+      // The regex's numeric branch only ever produces a lowercase "x", so
+      // there is no uppercase case to handle here.
+      const isHex = body[1] === "x";
+      const digits = isHex ? body.slice(2) : body.slice(1);
+      const codePoint = Number.parseInt(digits, isHex ? 16 : 10);
+      // Reject out-of-range values, lone surrogate halves, and the
+      // characters XML forbids outright (C0 controls other than tab/LF/CR,
+      // and the two permanently-unassigned noncharacters) rather than let
+      // String.fromCodePoint throw or silently emit U+FFFD. `digits` is
+      // always non-negative, so there is no `codePoint < 0` case either.
+      if (
+        !Number.isFinite(codePoint) ||
+        codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff) ||
+        (codePoint < 0x20 && codePoint !== 0x9 && codePoint !== 0xa && codePoint !== 0xd) ||
+        codePoint === 0xfffe ||
+        codePoint === 0xffff
+      ) {
+        return match;
+      }
+      return String.fromCodePoint(codePoint);
+    }
+    return XML_NAMED_ENTITIES[body] ?? match;
+  });
+}
+
+// CDATA content is already literal text, so it must never be re-decoded
+// (`<![CDATA[a &amp; b]]>` should stay `a &amp; b`). Split on CDATA sections
+// and decode only the parts outside them.
+const CDATA_RE = /<!\[CDATA\[([\s\S]*?)\]\]>/g;
+
+const CDATA_START = "<![CDATA[";
+
+export function decodeXmlField(raw: string): string {
+  let result = "";
+  let lastIndex = 0;
+  CDATA_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = CDATA_RE.exec(raw))) {
+    result += decodeXmlEntities(raw.slice(lastIndex, match.index));
+    result += match[1];
+    lastIndex = CDATA_RE.lastIndex;
+  }
+  // Any `<![CDATA[` left in the tail has no closing `]]>` anywhere later in
+  // the string, or the loop above would already have consumed it. Treat
+  // everything from that marker onward as literal CDATA content: strip the
+  // marker and leave the rest undecoded, rather than decoding text the feed
+  // meant to be taken as-is.
+  const tail = raw.slice(lastIndex);
+  const unterminated = tail.indexOf(CDATA_START);
+  if (unterminated === -1) {
+    result += decodeXmlEntities(tail);
+  } else {
+    result += decodeXmlEntities(tail.slice(0, unterminated));
+    result += tail.slice(unterminated + CDATA_START.length);
+  }
+  return result;
+}
+
+export function parseRssItems(xml: string): Array<{ title: string; description: string; pubDate?: string; link?: string }> {
   const items: Array<{ title: string; description: string; pubDate?: string; link?: string }> = [];
   const blocks = xml.split(/<item[\s>]/i).slice(1);
   for (const block of blocks) {
     const chunk = block.split(/<\/item>/i)[0] ?? "";
-    const title = (chunk.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? "").replace(/<!\[CDATA\[|\]\]>/g, "").trim();
-    const description = (chunk.match(/<description>([\s\S]*?)<\/description>/i)?.[1] ?? "")
-      .replace(/<!\[CDATA\[|\]\]>/g, "")
-      .trim();
+    const title = decodeXmlField(chunk.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? "").trim();
+    const description = decodeXmlField(chunk.match(/<description>([\s\S]*?)<\/description>/i)?.[1] ?? "").trim();
     const pubDate = chunk.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1]?.trim();
-    const link = chunk.match(/<link>([\s\S]*?)<\/link>/i)?.[1]?.trim();
+    const rawLink = chunk.match(/<link>([\s\S]*?)<\/link>/i)?.[1];
+    const link = rawLink !== undefined ? decodeXmlField(rawLink).trim() : undefined;
     items.push({ title, description, pubDate, link });
   }
   return items;

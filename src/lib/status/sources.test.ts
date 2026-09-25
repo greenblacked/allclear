@@ -1,6 +1,15 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { awsEventActive, classifyFailure, grokItemActive, grokItemHealth, saysResolved } from "./sources.server.ts";
+import {
+  awsEventActive,
+  classifyFailure,
+  decodeXmlEntities,
+  decodeXmlField,
+  grokItemActive,
+  grokItemHealth,
+  parseRssItems,
+  saysResolved,
+} from "./sources.server.ts";
 import { PayloadError, SourceError } from "./http.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -87,6 +96,156 @@ describe("aws health events", () => {
       awsEventActive({ status: 1, event_log: [{ timestamp: Math.floor((NOW - 30 * DAY) / 1000), message: "Investigating" }] } as never, NOW),
       false,
     );
+  });
+});
+
+describe("RSS entity decoding", () => {
+  it("decodes the five predefined XML entities and numeric references", () => {
+    assert.equal(decodeXmlEntities("Errors &amp; latency"), "Errors & latency");
+    assert.equal(decodeXmlEntities("a &lt; b &gt; c"), "a < b > c");
+    assert.equal(decodeXmlEntities("say &quot;hi&quot; &amp; &apos;bye&apos;"), "say \"hi\" & 'bye'");
+    assert.equal(decodeXmlEntities("&#65;&#66;&#67;"), "ABC");
+    assert.equal(decodeXmlEntities("&#x41;&#x42;&#x43;"), "ABC");
+  });
+
+  it("decodes in a single pass, so a double-escaped entity is not over-decoded", () => {
+    assert.equal(decodeXmlEntities("&amp;lt;"), "&lt;");
+    assert.equal(decodeXmlEntities("&amp;amp;"), "&amp;");
+  });
+
+  it("leaves unknown named entities and invalid numeric references unchanged", () => {
+    assert.equal(decodeXmlEntities("&copy; 2026"), "&copy; 2026");
+    assert.equal(decodeXmlEntities("&#x110000;"), "&#x110000;"); // out of range
+    assert.equal(decodeXmlEntities("&#xD800;"), "&#xD800;"); // lone surrogate
+  });
+
+  it("leaves XML-forbidden code points unchanged, but decodes tab and newline", () => {
+    assert.equal(decodeXmlEntities("&#0;"), "&#0;"); // null: forbidden C0 control
+    assert.equal(decodeXmlEntities("&#1;"), "&#1;"); // forbidden C0 control
+    assert.equal(decodeXmlEntities("&#xFFFE;"), "&#xFFFE;"); // permanently-unassigned noncharacter
+    assert.equal(decodeXmlEntities("a&#9;b"), "a\tb"); // tab is explicitly allowed
+    assert.equal(decodeXmlEntities("a&#10;b"), "a\nb"); // line feed is explicitly allowed
+    assert.equal(decodeXmlEntities("a&#13;b"), "a\rb"); // carriage return is explicitly allowed
+    assert.equal(decodeXmlEntities("&#31;"), "&#31;"); // last forbidden C0 control
+    assert.equal(decodeXmlEntities("&#xFFFF;"), "&#xFFFF;"); // noncharacter
+  });
+
+  it("only treats a lowercase x as hex, as XML does", () => {
+    assert.equal(decodeXmlEntities("&#X41;"), "&#X41;");
+  });
+});
+
+describe("decodeXmlField", () => {
+  it("decodes outside CDATA and leaves CDATA content literal", () => {
+    assert.equal(decodeXmlField("Errors &amp; <![CDATA[a &amp; b]]> latency"), "Errors & a &amp; b latency");
+  });
+});
+
+describe("parseRssItems", () => {
+  const feed = (items: string) => `<?xml version="1.0"?>
+<rss version="2.0"><channel>
+<title>xAI Status</title>
+<link>https://status.x.ai/</link>
+${items}
+</channel></rss>`;
+
+  it("reads multiple items and does not leak the channel-level title", () => {
+    const xml = feed(`
+      <item><title>First issue</title><description>desc one</description><pubDate>Mon, 01 Sep 2026 00:00:00 GMT</pubDate><link>https://status.x.ai/incidents/1</link></item>
+      <item><title>Second issue</title><description>desc two</description><pubDate>Tue, 02 Sep 2026 00:00:00 GMT</pubDate><link>https://status.x.ai/incidents/2</link></item>
+    `);
+    const items = parseRssItems(xml);
+    assert.equal(items.length, 2);
+    assert.equal(items[0].title, "First issue");
+    assert.equal(items[1].title, "Second issue");
+    assert.notEqual(items[0].title, "xAI Status");
+  });
+
+  it("strips CDATA markers from title and description", () => {
+    const xml = feed(`
+      <item><title><![CDATA[CDATA title]]></title><description><![CDATA[CDATA description]]></description></item>
+    `);
+    const [item] = parseRssItems(xml);
+    assert.equal(item.title, "CDATA title");
+    assert.equal(item.description, "CDATA description");
+  });
+
+  it("decodes named, decimal, and hex entities in title and description", () => {
+    const xml = feed(`
+      <item><title>Errors &amp; latency</title><description>Impact: 50&#37; of &#x52;equests</description></item>
+    `);
+    const [item] = parseRssItems(xml);
+    assert.equal(item.title, "Errors & latency");
+    assert.equal(item.description, "Impact: 50% of Requests");
+  });
+
+  it("does not over-decode &amp;lt; into a literal angle bracket", () => {
+    const xml = feed(`<item><title>&amp;lt;tag&amp;gt;</title><description>d</description></item>`);
+    const [item] = parseRssItems(xml);
+    assert.equal(item.title, "&lt;tag&gt;");
+  });
+
+  it("does not decode entities that appear inside CDATA", () => {
+    const xml = feed(`
+      <item><title><![CDATA[a &amp; b]]></title><description><![CDATA[c &lt; d]]></description></item>
+    `);
+    const [item] = parseRssItems(xml);
+    assert.equal(item.title, "a &amp; b");
+    assert.equal(item.description, "c &lt; d");
+  });
+
+  it("leaves pubDate and link undefined when absent", () => {
+    const xml = feed(`<item><title>No date or link</title><description>desc</description></item>`);
+    const [item] = parseRssItems(xml);
+    assert.equal(item.pubDate, undefined);
+    assert.equal(item.link, undefined);
+  });
+
+  it("returns an empty array for a feed with no items", () => {
+    const xml = feed("");
+    assert.deepEqual(parseRssItems(xml), []);
+  });
+
+  it("treats an unterminated CDATA section as literal text, not something to decode", () => {
+    const xml = feed(`<item><title><![CDATA[a &amp; b unterminated</title><description>d</description></item>`);
+    const [item] = parseRssItems(xml);
+    // The marker is stripped; everything after it is literal, undecoded text.
+    assert.equal(item.title, "a &amp; b unterminated");
+  });
+});
+
+describe("grok feed html stripping end to end", () => {
+  // Descriptions are NOT wrapped in CDATA here: the entities below must go
+  // through parseRssItems's real decoding step, the same as a live feed
+  // that XML-escapes literal '<'/'>' in its plain-text description.
+  const feed = (description: string) => `<?xml version="1.0"?>
+<rss version="2.0"><channel><title>xAI Status</title>
+<item><title>All clear</title><description>${description}</description></item>
+</channel></rss>`;
+
+  it("reads a resolved status when decoding produces a literal '<'/'>' in plain text", () => {
+    // Decodes to: Latency < 500ms. Status: Resolved. Errors > 1%
+    // The old blanket stripHtml regex read "< 500ms. ... Errors >" as one
+    // tag and erased "Status: Resolved" along with it.
+    const xml = feed("Latency &lt; 500ms. Status: Resolved. Errors &gt; 1%");
+    const [item] = parseRssItems(xml);
+    assert.equal(item.description, "Latency < 500ms. Status: Resolved. Errors > 1%");
+    assert.equal(grokItemHealth(item.description), "operational");
+  });
+
+  it("still strips real HTML markup once decoded", () => {
+    // Decodes to: <p><b>Status:</b> Resolved</p>
+    const xml = feed("&lt;p&gt;&lt;b&gt;Status:&lt;/b&gt; Resolved&lt;/p&gt;");
+    const [item] = parseRssItems(xml);
+    assert.equal(item.description, "<p><b>Status:</b> Resolved</p>");
+    assert.equal(grokItemHealth(item.description), "operational");
+  });
+
+  it("ignores HTML comments and reads a non-breaking space as a space", () => {
+    assert.equal(grokItemHealth("<!-- major outage --> Status: Resolved"), "operational");
+    const xml = feed("<![CDATA[<p>Status:&nbsp;Resolved</p>]]>");
+    const [item] = parseRssItems(xml);
+    assert.equal(grokItemHealth(item.description), "operational");
   });
 });
 
