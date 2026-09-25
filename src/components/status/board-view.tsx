@@ -1,18 +1,18 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, RefreshCw, Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { RefreshCw, Search } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { HealthDot } from "@/components/status/health-dot";
 import { LiveBar } from "@/components/status/live-bar";
-import { ServiceCard } from "@/components/status/service-card";
+import { ServiceCard, ServiceTile } from "@/components/status/service-card";
 import { UpdateFeed } from "@/components/status/update-feed";
 import { useNow } from "@/components/status/use-now";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchStatusBoard, refreshStatusBoard } from "@/lib/status/board";
-import { CATEGORIES } from "@/lib/status/catalog";
-import { overallHealth } from "@/lib/status/diff";
-import { attentionBreakdown, healthLabel } from "@/lib/status/health";
+import { APP_NAME, CATEGORIES } from "@/lib/status/catalog";
+import { attentionBreakdown } from "@/lib/status/health";
+import { boardHeadline, documentTitle, groupServices, serviceAnchor } from "@/lib/status/layout";
 import {
   emptyPulseStore,
   loadPulseStore,
@@ -21,14 +21,13 @@ import {
   type PulseStore,
 } from "@/lib/status/pulse";
 import { CACHE_TTL_MS, lastPulseAt, LIVE_REFETCH_MS } from "@/lib/status/schedule";
-import type { BoardSnapshot, CategoryId, Health } from "@/lib/status/types";
+import type { BoardSnapshot, CategoryId, ServiceSnapshot } from "@/lib/status/types";
 import { cn } from "@/lib/utils";
 
 const FILTERS: Array<{ id: "all" | CategoryId; label: string }> = [
   { id: "all", label: "All" },
   ...CATEGORIES,
 ];
-
 
 export function BoardView({ initial }: { initial: BoardSnapshot }) {
   const queryClient = useQueryClient();
@@ -61,7 +60,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
   });
 
   const board = boardQuery.data ?? initial;
-  const overall = overallHealth(board);
+  const headline = boardHeadline(board);
   const pulseStore = store ?? emptyPulseStore();
   const changedIds = new Set(
     (pulseStore.pulses[0]?.opening ? [] : pulseStore.pulses[0]?.changes ?? []).map(
@@ -80,6 +79,12 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
   }, [board, slot, store]);
 
 
+  // The tab shows the attention count, so a background tab still says
+  // something broke. The server-rendered <title> stays the plain name.
+  useEffect(() => {
+    document.title = documentTitle(board, APP_NAME);
+  }, [board]);
+
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return board.services.filter((service) => {
@@ -91,8 +96,10 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
     });
   }, [board.services, category, issuesOnly, query]);
 
-  const issueCount =
-    board.counts.degraded + board.counts.outage + board.counts.unknown + board.counts.maintenance;
+  const issueCount = board.services.length - board.counts.operational;
+  const groups = groupServices(visible);
+  const categoryCount = (id: "all" | CategoryId) =>
+    id === "all" ? board.services.length : board.services.filter((service) => service.category === id).length;
 
   async function handleRefresh() {
     if (manualRefreshInFlight.current) return;
@@ -114,172 +121,241 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
   return (
     <div className="liquid-stage text-fg">
       <div className="liquid-content">
-      <header className="relative mx-auto flex max-w-6xl flex-col gap-8 px-4 pt-8 pb-4 sm:px-6 sm:pt-12">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.22em] text-subtle">
-              <span className="live-dot inline-block size-1.5 rounded-full bg-ok" aria-hidden />
-              Live status board
-            </p>
-            <h1 className="mt-2 font-display text-5xl font-medium tracking-[-0.04em] text-balance sm:text-6xl">
-              Status Bar
-            </h1>
-            <p className="mt-3 max-w-xl text-base leading-relaxed text-muted text-pretty">
-              Official sources are checked on a two-minute cadence; Refresh pulls a fresh check immediately.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
+        <header className="relative mx-auto flex max-w-6xl flex-col gap-6 px-4 pt-8 pb-4 sm:px-6 sm:pt-12">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.22em] text-subtle">
+                <span className="live-dot inline-block size-1.5 rounded-full bg-ok" aria-hidden />
+                Live status board
+              </p>
+              <h1 className="mt-2 font-display text-4xl font-medium tracking-[-0.04em] text-balance sm:text-6xl">
+                {APP_NAME}
+              </h1>
+              <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted text-pretty sm:text-base">
+                Official vendor status for {board.services.length} services, checked every two minutes.
+              </p>
+            </div>
             <Button
               variant="outline"
               size="sm"
+              className="shrink-0"
               onClick={() => void handleRefresh()}
               disabled={fetching}
               aria-label="Refresh status now"
             >
               <RefreshCw className={cn("size-3.5", fetching && "animate-spin")} />
-              Refresh
+              <span className="hidden sm:inline">Refresh</span>
             </Button>
           </div>
-        </div>
 
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <OverallCard overall={overall} issueCount={issueCount} total={board.services.length} />
-          <StatCard
-            label="Operational"
-            value={board.counts.operational}
-            detail={`of ${board.services.length} services`}
-          />
-          <StatCard label="Attention" value={issueCount} detail={attentionBreakdown(board.counts)} />
-          <StatCard
-            label="Sources"
-            value={`${board.services.length - board.counts.unknown}/${board.services.length}`}
-            detail={board.counts.unknown ? `${board.counts.unknown} not readable` : "all readable"}
-          />
-        </section>
+          <SummaryPanel board={board} headline={headline} fetching={fetching} now={now} />
 
-        <LiveBar checkedAt={board.generatedAt} isFetching={fetching} now={now} />
-
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <label className="relative block min-w-0 flex-1">
-            <span className="sr-only">Search services</span>
-            <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-subtle" />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search GCP, CS2 Europe, RouterOS…"
-              className="pl-10"
-            />
-          </label>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter services">
-            {FILTERS.map((filter) => (
-              <Button
-                key={filter.id}
-                variant={category === filter.id ? "default" : "outline"}
-                size="sm"
-                aria-pressed={category === filter.id}
-                onClick={() => setCategory(filter.id)}
-              >
-                {filter.label}
-              </Button>
-            ))}
-            <Button
-              variant={issuesOnly ? "solid" : "ghost"}
-              size="sm"
-              aria-pressed={issuesOnly}
-              onClick={() => setIssuesOnly((value) => !value)}
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <label className="relative block min-w-0 flex-1">
+              <span className="sr-only">Search services</span>
+              <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-subtle" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search GCP, CS2 Europe, RouterOS…"
+                className="pl-10"
+              />
+            </label>
+            {/* One scrolling row on phones instead of three wrapped ones. */}
+            <div
+              className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0 [&::-webkit-scrollbar]:hidden"
+              role="group"
+              aria-label="Filter services"
             >
-              Issues only
-            </Button>
+              {FILTERS.map((filter) => (
+                <Button
+                  key={filter.id}
+                  variant={category === filter.id ? "default" : "outline"}
+                  size="sm"
+                  className="shrink-0"
+                  aria-pressed={category === filter.id}
+                  onClick={() => setCategory(filter.id)}
+                >
+                  {filter.label}
+                  <span className="font-mono text-[11px] tabular-nums opacity-60">{categoryCount(filter.id)}</span>
+                </Button>
+              ))}
+              <Button
+                variant={issuesOnly ? "default" : "outline"}
+                size="sm"
+                className="shrink-0"
+                aria-pressed={issuesOnly}
+                onClick={() => setIssuesOnly((value) => !value)}
+              >
+                Issues only
+                <span className="font-mono text-[11px] tabular-nums opacity-60">{issueCount}</span>
+              </Button>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="relative mx-auto max-w-6xl px-4 pb-20 sm:px-6">
-        {boardQuery.isError ? (
-          <p className="mb-4 rounded-2xl glass px-4 py-3 text-sm text-down">
-            Could not refresh official sources. Showing the last successful snapshot.
-          </p>
-        ) : null}
+        <main className="relative mx-auto max-w-6xl px-4 pb-20 sm:px-6">
+          {boardQuery.isError ? (
+            <p className="mb-4 rounded-2xl glass px-4 py-3 text-sm text-down">
+              Could not refresh official sources. Showing the last successful snapshot.
+            </p>
+          ) : null}
 
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
-          <section aria-labelledby="services-heading">
-            <h2 id="services-heading" className="sr-only">
-              Services
-            </h2>
-            {fetching && !board.services.length ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {Array.from({ length: 6 }).map((_, index) => (
-                  <Skeleton key={index} className="h-56" />
-                ))}
-              </div>
-            ) : visible.length === 0 ? (
-              <p className="rounded-3xl glass px-5 py-10 text-center text-muted">
-                No services match that filter.
-              </p>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {visible.map((service, index) => (
-                  <ServiceCard
-                    key={service.id}
-                    service={service}
-                    index={index}
-                    emphasized={changedIds.has(service.id)}
-                    mounted={now > 0}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-          <UpdateFeed pulses={pulseStore.pulses} />
-        </div>
+          <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+            <div className="flex min-w-0 flex-col gap-8">
+              {fetching && !board.services.length ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <Skeleton key={index} className="h-56" />
+                  ))}
+                </div>
+              ) : visible.length === 0 ? (
+                <p className="rounded-3xl glass px-5 py-10 text-center text-muted">No services match that filter.</p>
+              ) : (
+                <>
+                  <ServiceSection id="attention" title="Needs attention" services={groups.attention}>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {groups.attention.map((service, index) => (
+                        <ServiceCard
+                          key={service.id}
+                          service={service}
+                          index={index}
+                          emphasized={changedIds.has(service.id)}
+                        />
+                      ))}
+                    </div>
+                  </ServiceSection>
+                  <ServiceSection id="operational" title="Operational" services={groups.operational}>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {groups.operational.map((service, index) => (
+                        <ServiceTile
+                          key={service.id}
+                          service={service}
+                          index={index}
+                          emphasized={changedIds.has(service.id)}
+                        />
+                      ))}
+                    </div>
+                  </ServiceSection>
+                  <ServiceSection id="releases" title="Releases" services={groups.releases}>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {groups.releases.map((service, index) => (
+                        <ServiceCard
+                          key={service.id}
+                          service={service}
+                          index={index}
+                          emphasized={changedIds.has(service.id)}
+                        />
+                      ))}
+                    </div>
+                  </ServiceSection>
+                </>
+              )}
+            </div>
+            {/* Pinned beside the cards on wide screens instead of stretching to their height. */}
+            <UpdateFeed pulses={pulseStore.pulses} className="xl:sticky xl:top-6" />
+          </div>
 
-        <footer className="mt-14 flex flex-col gap-2 text-sm text-subtle">
-          <p>
-            Status Bar reads vendor status feeds only. It is not affiliated with Google, Amazon, Valve, Epic,
-            Spotify, Apple, MikroTik, xAI, OpenAI, or Anthropic.
-          </p>
-          <p>Cached server snapshots update every two minutes from official vendor feeds.</p>
-        </footer>
-      </main>
+          <footer className="mt-14 flex flex-col gap-2 text-sm text-subtle">
+            <p>
+              Status Bar reads vendor status feeds only. It is not affiliated with Google, Amazon, Valve, Epic,
+              Spotify, Apple, MikroTik, xAI, OpenAI, or Anthropic.
+            </p>
+            <p>Cached server snapshots update every two minutes from official vendor feeds.</p>
+          </footer>
+        </main>
       </div>
     </div>
   );
 }
 
-function OverallCard({
-  overall,
-  issueCount,
-  total,
+function ServiceSection({
+  id,
+  title,
+  services,
+  children,
 }: {
-  overall: Health;
-  issueCount: number;
-  total: number;
+  id: string;
+  title: string;
+  services: ServiceSnapshot[];
+  children: ReactNode;
 }) {
+  if (services.length === 0) return null;
   return (
-    <div className="glass rounded-3xl p-4 sm:col-span-1">
-      <div className="flex items-center gap-2 text-subtle">
-        <Activity className="size-3.5" />
-        <span className="font-mono text-[11px] uppercase tracking-[0.16em]">Board</span>
-      </div>
-      <p className="mt-3 font-display text-2xl tracking-[-0.03em]">
-        {overall === "operational" ? "All clear" : overall === "outage" ? "Outage" : "Attention"}
-      </p>
-      <div className="mt-2 flex items-center gap-2">
-        <Badge tone={overall}>{healthLabel(overall)}</Badge>
-        <span className="font-mono text-[11px] tabular-nums text-subtle">
-          {total - issueCount}/{total} clear
-        </span>
-      </div>
-    </div>
+    <section aria-labelledby={`${id}-heading`}>
+      <h2
+        id={`${id}-heading`}
+        className="mb-3 flex items-baseline gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-subtle"
+      >
+        {title}
+        <span className="tabular-nums text-muted">{services.length}</span>
+      </h2>
+      {children}
+    </section>
   );
 }
 
-function StatCard({ label, value, detail }: { label: string; value: number | string; detail: string }) {
+function SummaryPanel({
+  board,
+  headline,
+  fetching,
+  now,
+}: {
+  board: BoardSnapshot;
+  headline: ReturnType<typeof boardHeadline>;
+  fetching: boolean;
+  now: number;
+}) {
+  const total = board.services.length;
+  const attention = total - board.counts.operational;
+  const affected = groupServices(board.services).attention;
+
   return (
-    <div className="glass rounded-3xl p-4">
-      <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-subtle">{label}</p>
-      <p className="mt-3 font-display text-2xl tabular-nums tracking-[-0.03em]">{value}</p>
-      <p className="mt-2 font-mono text-[11px] tabular-nums text-subtle">{detail}</p>
+    <section aria-labelledby="board-headline" className="glass rounded-3xl p-5 sm:p-6">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <h2
+            id="board-headline"
+            className="flex items-center gap-3 font-display text-2xl font-medium tracking-[-0.03em] text-balance sm:text-3xl"
+          >
+            <HealthDot health={headline.tone} className="size-2.5" />
+            {headline.title}
+          </h2>
+          <p className="mt-1.5 font-mono text-[11px] tabular-nums text-subtle">
+            {attention ? attentionBreakdown(board.counts) : `All ${total} official sources report normal operation`}
+          </p>
+          {affected.length ? (
+            <ul className="mt-4 flex flex-wrap gap-1.5" aria-label="Services that need attention">
+              {affected.map((service) => (
+                <li key={service.id}>
+                  <a
+                    href={`#${serviceAnchor(service.id)}`}
+                    className="inline-flex min-h-8 items-center gap-1.5 rounded-full glass-inset px-3 text-xs text-muted transition-colors duration-[var(--motion-quick)] hover:text-fg"
+                  >
+                    <HealthDot health={service.health} />
+                    {service.name}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+        <dl className="grid shrink-0 grid-cols-3 gap-6 sm:gap-10">
+          <Stat label="Operational" value={`${board.counts.operational}/${total}`} />
+          <Stat label="Attention" value={attention} />
+          <Stat label="Sources" value={`${total - board.counts.unknown}/${total}`} />
+        </dl>
+      </div>
+      <LiveBar checkedAt={board.generatedAt} isFetching={fetching} now={now} className="mt-5 border-t border-border pt-4" />
+    </section>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div>
+      <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-subtle">{label}</dt>
+      <dd className="mt-1 font-display text-2xl tabular-nums tracking-[-0.03em]">{value}</dd>
     </div>
   );
 }

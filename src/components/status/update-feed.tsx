@@ -4,11 +4,11 @@ import { formatSlotTime } from "@/lib/status/schedule";
 import type { Pulse } from "@/lib/status/pulse";
 import { cn } from "@/lib/utils";
 
-export function UpdateFeed({ pulses }: { pulses: Pulse[] }) {
+export function UpdateFeed({ pulses, className }: { pulses: Pulse[]; className?: string }) {
   const latest = pulses[0];
 
   return (
-    <section className="glass rounded-3xl p-4">
+    <section className={cn("glass rounded-3xl p-4", className)}>
       <div className="flex items-end justify-between gap-3">
         <div>
           <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-subtle">

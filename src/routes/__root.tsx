@@ -1,9 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { useState } from "react";
+import { APP_NAME } from "@/lib/status/catalog";
 import appCss from "../styles.css?url";
-
-const APP_NAME = "Status Bar";
 
 function RootDocument() {
   const [queryClient] = useState(

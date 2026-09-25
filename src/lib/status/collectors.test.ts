@@ -153,6 +153,44 @@ describe("collectAllServices against stubbed vendor payloads", () => {
     expect(services.find((s) => s.id === "chatgpt")!.health).toBe("maintenance");
   });
 
+  it("names the in-progress maintenance on a Statuspage card, even when the vendor sends no description", async () => {
+    stubFetch({
+      [URLS.claude]: json({
+        status: { indicator: "maintenance", description: "" },
+        components: [{ id: "c1", name: "claude.ai", status: "under_maintenance" }],
+        incidents: [],
+        scheduled_maintenances: [{ id: "m1", name: "Database upgrade", status: "in_progress" }],
+      }),
+    });
+    const services = await collectAllServices();
+    const snapshot = services.find((s) => s.id === "claude")!;
+    expect(snapshot.health).toBe("maintenance");
+    expect(snapshot.summary).toBe("Database upgrade");
+  });
+
+  it("falls back to a generic sentence instead of a blank summary when the description is empty", async () => {
+    stubFetch({
+      [URLS.chatgpt]: json({ status: { indicator: "minor", description: "" }, components: [], incidents: [], scheduled_maintenances: [] }),
+    });
+    const services = await collectAllServices();
+    expect(services.find((s) => s.id === "chatgpt")!.summary).toBe("Degraded performance on one or more components.");
+  });
+
+  it("Google Cloud incidents.json: incident links resolve with or without a leading slash", async () => {
+    stubFetch({
+      [URLS.gcp]: json([
+        googleIncident({ id: "a", uri: "incidents/abc" }),
+        googleIncident({ id: "b", uri: "/incidents/def" }),
+      ]),
+    });
+    const services = await collectAllServices();
+    const urls = services.find((s) => s.id === "gcp")!.incidents.map((incident) => incident.url);
+    expect(urls).toEqual([
+      "https://status.cloud.google.com/incidents/abc",
+      "https://status.cloud.google.com/incidents/def",
+    ]);
+  });
+
   it("Google Cloud incidents.json: only open incidents count, and health worsens with them", async () => {
     stubFetch({
       [URLS.gcp]: json([
