@@ -126,6 +126,43 @@ Open the local URL that Vite prints. The first load reads all fourteen sources, 
 - Press **Refresh** to skip the cache and ask every vendor right now. Presses within 15 seconds of the last check reuse it
 - Open any card's vendor page for the full story
 
+## Integrations
+
+The board publishes what it shows in three open formats. All three come from the same two-minute snapshot as the page, allow cross-origin reads, and are cached for a minute.
+
+| Endpoint | Format | Use it for |
+| --- | --- | --- |
+| `/api/status.json` | JSON: overall health, headline, counts, and each service's health, summary, source and incidents | Scripts, dashboards, chat bots |
+| `/feed.xml` | Atom, one entry per service that needs attention | Alerts in Slack, Teams, Discord or a feed reader |
+| `/api/badge/<service>` | [Shields.io endpoint badge](https://shields.io/badges/endpoint-badge) | A live status badge in a README or wiki |
+
+**Alerts without code.** Subscribe a chat tool to the feed:
+
+- Slack: `/feed subscribe https://<your-host>/feed.xml`
+- Microsoft Teams: the RSS connector, pointed at the same URL
+- Discord: any RSS feed bot
+
+An entry's id includes the service's health and a fingerprint of its summary, so a feed reader posts again when an incident gets worse, better or reworded, and stays quiet otherwise.
+
+**Badges.** Use a service id, or `board` for the whole board:
+
+```markdown
+![Google Cloud](https://img.shields.io/endpoint?url=https://<your-host>/api/badge/gcp)
+![Status Bar](https://img.shields.io/endpoint?url=https://<your-host>/api/badge/board)
+```
+
+Service ids: `gcp`, `aws`, `steam`, `cs2-europe`, `epic`, `fortnite`, `spotify`, `apple`, `android`, `grok`, `chatgpt`, `claude`, `mikrotik`, `apple-os`. An unknown id returns a grey "unknown service" badge instead of an error.
+
+Shields.io fetches the badge from your host, so badges need a public deployment.
+
+**Quick check:**
+
+```bash
+curl -s http://localhost:3000/api/status.json | jq '.overall, .headline'
+curl -s http://localhost:3000/feed.xml | head -20
+curl -s http://localhost:3000/api/badge/gcp
+```
+
 ## FAQ
 
 <details>

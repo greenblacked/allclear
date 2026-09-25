@@ -6,6 +6,12 @@ Each release's section becomes its GitHub Release notes, so write entries for so
 
 ## [Unreleased]
 
+### Added
+
+- A public JSON API at `/api/status.json`, with the board's overall health, headline and every service's status and incidents.
+- An Atom feed at `/feed.xml` with one entry per service that needs attention. Subscribe Slack, Microsoft Teams, Discord or a feed reader to it for alerts without code.
+- Shields.io status badges at `/api/badge/<service>`, and `/api/badge/board` for the whole board.
+
 ### Changed
 
 - The board opens with one line naming the worst problem, such as "Outage: Apple", with links to every service that needs attention.

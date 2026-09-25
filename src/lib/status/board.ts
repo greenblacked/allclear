@@ -1,4 +1,4 @@
-import { createServerFn } from "@tanstack/react-start";
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { CACHE_MAX_STALE_MS, CACHE_TTL_MS, MIN_FORCED_REFRESH_MS } from "./schedule";
 import { createTtlCache } from "./ttl-cache";
 import type { BoardSnapshot, Health, ServiceSnapshot } from "./types";
@@ -24,6 +24,16 @@ const boardCache = createTtlCache(async () => {
   const services = await collectAllServices();
   return assemble(services, Date.now() - started);
 }, CACHE_TTL_MS, { maxStaleMs: CACHE_MAX_STALE_MS, minForceIntervalMs: MIN_FORCED_REFRESH_MS });
+
+/**
+ * The same cached board the page reads, for server routes (the JSON API, the
+ * feed and the badges). Sharing the cache is what keeps a busy badge from
+ * costing a vendor sweep per request. Server-only, so the client bundle
+ * drops the cache and the collectors it would otherwise pull in.
+ */
+export const getStatusBoard = createServerOnlyFn(
+  (): Promise<BoardSnapshot> => boardCache.get({ allowStale: true }),
+);
 
 export const fetchStatusBoard = createServerFn({ method: "GET" }).handler(async () => {
   return boardCache.get();
