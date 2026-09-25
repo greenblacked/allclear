@@ -186,7 +186,10 @@ function googleIncidents(incidents: GoogleIncident[], sourceRoot: string) {
       health: itemHealth,
       startedAt: incident.begin,
       updatedAt: incident.modified,
-      url: incident.uri ? `${sourceRoot.replace(/\/$/, "")}${incident.uri}` : sourceRoot,
+      // Resolved against the root rather than concatenated: the feed's
+      // "incidents/<id>" form has no leading slash, and concatenation
+      // produced "https://status.cloud.google.comincidents/<id>".
+      url: incident.uri ? new URL(incident.uri, `${sourceRoot.replace(/\/$/, "")}/`).href : sourceRoot,
     };
   });
   return { health, incidents: mapped, components };
@@ -243,7 +246,12 @@ function fromStatuspage(
 
   if (maintenances.length && health === "operational") health = "maintenance";
 
-  const hint = incidents[0]?.title ?? data.status?.description;
+  // During maintenance with no incident, the maintenance itself is what the
+  // card should name; the indicator description is only a generic fallback.
+  const hint =
+    incidents[0]?.title ||
+    (health === "maintenance" ? maintenances[0]?.name : undefined) ||
+    data.status?.description;
   return {
     ...base(id, checkedAt, latencyMs),
     health,

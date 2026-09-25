@@ -6,6 +6,11 @@ Each release's section becomes its GitHub Release notes, so write entries for so
 
 ## [Unreleased]
 
+### Fixed
+
+- A Statuspage service in maintenance names the maintenance on its card instead of showing a blank summary.
+- Google Cloud and Google Play incident links point to the incident, not to a malformed address.
+
 ## [0.1.0] - 2026-09-24
 
 First tagged release.

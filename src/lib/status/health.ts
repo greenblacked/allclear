@@ -71,20 +71,24 @@ export function googleImpact(impact: string | undefined, severity?: string): Hea
   return "degraded";
 }
 
+export const ALL_CLEAR_SUMMARY = "All reported systems operational.";
+
+// `||`, not `??`: a vendor can send an empty description, and "" must fall
+// back to the generic sentence rather than leave the card blank.
 export function overallSummary(health: Health, incidentCount: number, componentHint?: string): string {
   if (health === "operational") {
     return incidentCount > 0
       ? `Clear. ${incidentCount} recently resolved item${incidentCount === 1 ? "" : "s"}.`
-      : "All reported systems operational.";
+      : ALL_CLEAR_SUMMARY;
   }
   if (health === "maintenance") {
-    return componentHint ?? "Scheduled maintenance is in progress.";
+    return componentHint || "Scheduled maintenance is in progress.";
   }
   if (health === "degraded") {
-    return componentHint ?? "Degraded performance on one or more components.";
+    return componentHint || "Degraded performance on one or more components.";
   }
   if (health === "outage") {
-    return componentHint ?? "An outage is affecting this service.";
+    return componentHint || "An outage is affecting this service.";
   }
   return "Status could not be confirmed from the official source.";
 }
