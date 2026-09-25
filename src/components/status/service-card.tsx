@@ -1,7 +1,10 @@
 import { ArrowUpRight, Cloud, Cpu, Gamepad2, History, Smartphone } from "lucide-react";
+import { HealthDot } from "@/components/status/health-dot";
 import { Badge } from "@/components/ui/badge";
-import { healthLabel } from "@/lib/status/health";
-import type { CategoryId, Health, ServiceSnapshot } from "@/lib/status/types";
+import { CATEGORIES } from "@/lib/status/catalog";
+import { ALL_CLEAR_SUMMARY, healthLabel } from "@/lib/status/health";
+import { serviceAnchor } from "@/lib/status/layout";
+import type { CategoryId, ComponentHealth, ServiceSnapshot } from "@/lib/status/types";
 import { cn } from "@/lib/utils";
 
 const CATEGORY_ICON: Record<CategoryId, typeof Cloud> = {
@@ -12,46 +15,50 @@ const CATEGORY_ICON: Record<CategoryId, typeof Cloud> = {
   updates: History,
 };
 
-function formatTime(iso?: string) {
-  if (!iso) return null;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat("en", {
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "short",
-    day: "numeric",
-    timeZoneName: "short",
-  }).format(date);
-}
+const ICON_TONE = {
+  operational: "text-ok",
+  degraded: "text-warn",
+  outage: "text-down",
+  maintenance: "text-accent",
+  unknown: "text-subtle",
+} as const;
 
+const norm = (text: string) => text.trim().toLowerCase();
+
+/**
+ * The full card, for services that need attention and for the release
+ * trackers. Every line should add something the summary does not already
+ * say: vendors often repeat one incident as the status description, the
+ * affected component and the incident title.
+ */
 export function ServiceCard({
   service,
   index,
   emphasized = false,
-  mounted = false,
 }: {
   service: ServiceSnapshot;
   index: number;
   emphasized?: boolean;
-  /** False until the client has mounted; see checkedAt below. */
-  mounted?: boolean;
 }) {
   const Icon = CATEGORY_ICON[service.category];
-  const checkedAtLabel = formatTime(service.checkedAt);
   const changelog = service.category === "updates";
-  const issueComponents = service.components.filter((component) => component.health !== "operational");
-  const shown =
+  const summary = norm(service.summary);
+
+  // Release channels and CS2 pops are the content of their cards. Elsewhere
+  // only broken components earn a row.
+  const rows = (
     changelog || service.id === "cs2-europe"
-      ? service.components.slice(0, 6)
-      : issueComponents.length > 0
-        ? issueComponents
-        : [];
+      ? service.components
+      : service.components.filter((component) => component.health !== "operational")
+  ).slice(0, 6);
+  const incidents = service.incidents.filter((incident) => norm(incident.title) !== summary).slice(0, 2);
+  const incidentUrl = changelog ? undefined : service.incidents.find((incident) => incident.url)?.url;
 
   return (
     <article
+      id={serviceAnchor(service.id)}
       className={cn(
-        "group relative flex flex-col rounded-3xl glass p-4 transition-[box-shadow,transform] duration-[var(--motion-fast)] ease-[var(--ease-smooth-out)] hover:shadow-[var(--shadow-border-hover)] stagger-in",
+        "group relative flex scroll-mt-6 flex-col rounded-3xl glass p-4 transition-[box-shadow,transform] duration-[var(--motion-fast)] ease-[var(--ease-smooth-out)] hover:shadow-[var(--shadow-border-hover)] stagger-in",
         emphasized && (service.health === "outage" ? "service-card-changed is-down" : "service-card-changed"),
       )}
       style={{ animationDelay: `${Math.min(index, 12) * 40}ms` }}
@@ -59,18 +66,13 @@ export function ServiceCard({
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <span
-            className={cn(
-              "grid size-10 place-items-center rounded-2xl glass-inset text-muted",
-              service.health === "outage" && "text-down",
-              service.health === "degraded" && "text-warn",
-              service.health === "operational" && "text-ok",
-            )}
+            className={cn("grid size-10 shrink-0 place-items-center rounded-2xl glass-inset", ICON_TONE[service.health])}
             aria-hidden
           >
             <Icon className="size-4" strokeWidth={1.75} />
           </span>
           <div className="min-w-0">
-            <h3 className="truncate font-display text-lg font-medium leading-tight tracking-[-0.03em] text-balance">
+            <h3 className="font-display text-lg font-medium leading-tight tracking-[-0.03em] text-balance">
               {service.name}
             </h3>
             <p className="mt-0.5 font-mono text-[11px] uppercase tracking-[0.14em] text-subtle">
@@ -79,39 +81,35 @@ export function ServiceCard({
             </p>
           </div>
         </div>
-        <HealthDot health={service.health} />
+        <Badge tone={service.health} className="shrink-0 gap-1.5 pr-2.5 pl-2">
+          <HealthDot health={service.health} />
+          {healthLabel(service.health)}
+        </Badge>
       </div>
 
-      <p className="mt-4 min-h-10 text-sm leading-relaxed text-muted text-pretty [overflow-wrap:anywhere]">{service.summary}</p>
+      <p className="mt-4 text-sm leading-relaxed text-muted text-pretty [overflow-wrap:anywhere]">{service.summary}</p>
 
-      {shown.length > 0 ? (
+      {rows.length > 0 ? (
         <ul className="mt-4 flex flex-col gap-1.5">
-          {shown.slice(0, 6).map((component, componentIndex) => (
-            <li
+          {rows.map((component, componentIndex) => (
+            <ComponentRow
               key={`${component.name}-${componentIndex}`}
-              className="flex items-center justify-between gap-3 rounded-xl glass-inset px-3 py-2"
-            >
-              <span className="truncate text-sm text-fg">{component.name}</span>
-              <span className="flex shrink-0 items-center gap-2 font-mono text-[11px] tabular-nums text-subtle">
-                {component.detail}
-                {changelog ? (
-                  component.health === "maintenance" ? (
-                    <Badge tone="maintenance">New</Badge>
-                  ) : null
-                ) : (
-                  <Badge tone={component.health}>{healthLabel(component.health)}</Badge>
-                )}
-              </span>
-            </li>
+              component={component}
+              changelog={changelog}
+              // A status summary often is the detail, word for word. A release
+              // row's detail is its version, which the summary may quote but
+              // the row still needs.
+              showDetail={Boolean(component.detail) && (changelog || !summary.includes(norm(component.detail ?? "")))}
+            />
           ))}
         </ul>
       ) : null}
 
-      {service.incidents.length > 0 ? (
+      {incidents.length > 0 ? (
         <ul className="mt-3 space-y-2">
-          {service.incidents.slice(0, 2).map((incident, incidentIndex) => (
-            <li key={`${incident.id}-${incidentIndex}`} className="text-sm text-fg">
-              <span className="text-down">{healthLabel(incident.health)}</span>
+          {incidents.map((incident, incidentIndex) => (
+            <li key={`${incident.id}-${incidentIndex}`} className="text-sm text-fg [overflow-wrap:anywhere]">
+              <span className={ICON_TONE[incident.health]}>{healthLabel(incident.health)}</span>
               <span className="text-subtle"> · </span>
               {incident.title}
             </li>
@@ -120,43 +118,101 @@ export function ServiceCard({
       ) : null}
 
       <div className="mt-auto flex items-center justify-between gap-3 pt-4">
-        <p className="font-mono text-[11px] tabular-nums text-subtle">
-          {service.latencyMs}ms
-          {/*
-            `checkedAt` is formatted in the viewer's timezone, so the server
-            ("12:04 UTC") and the client ("14:04 GMT+2") disagree and hydration
-            mismatches. Render it only after mount, as LiveBar does.
-          */}
-          {mounted && checkedAtLabel ? ` · ${checkedAtLabel}` : ""}
+        <p className="font-mono text-[11px] tabular-nums text-subtle" title="Time the official source took to answer">
+          {service.latencyMs} ms
         </p>
         <a
-          href={service.sourceUrl}
+          href={incidentUrl ?? service.sourceUrl}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex min-h-11 items-center gap-1 rounded-full px-2 text-xs text-muted transition-colors duration-[var(--motion-quick)] hover:text-fg"
+          className="inline-flex min-h-11 min-w-0 items-center gap-1 rounded-full px-2 text-xs text-muted transition-colors duration-[var(--motion-quick)] hover:text-fg"
         >
-          {service.sourceName}
-          <ArrowUpRight className="size-3.5" />
+          <span className="truncate">{incidentUrl ? "View incident" : service.sourceName}</span>
+          <ArrowUpRight className="size-3.5 shrink-0" />
         </a>
       </div>
     </article>
   );
 }
 
-function HealthDot({ health }: { health: Health }) {
+function ComponentRow({
+  component,
+  changelog,
+  showDetail,
+}: {
+  component: ComponentHealth;
+  changelog: boolean;
+  showDetail: boolean;
+}) {
+  const badge = changelog
+    ? component.health === "maintenance" && <Badge tone="maintenance">New</Badge>
+    : component.health !== "operational" && <Badge tone={component.health}>{healthLabel(component.health)}</Badge>;
+
   return (
-    <Badge tone={health} className="gap-1.5 pr-2.5 pl-2">
-      <span
-        className={cn(
-          "size-1.5 rounded-full",
-          health === "operational" && "bg-ok",
-          health === "degraded" && "bg-warn",
-          health === "outage" && "bg-down animate-pulse",
-          health === "maintenance" && "bg-accent",
-          health === "unknown" && "bg-subtle",
-        )}
-      />
-      {healthLabel(health)}
-    </Badge>
+    <li className="flex items-center gap-3 rounded-xl glass-inset px-3 py-2">
+      {/* The floor keeps a name readable beside a long detail without reserving room a short name does not need. */}
+      <span className="min-w-[4.5rem] flex-1 truncate text-sm text-fg" title={component.name}>
+        {component.name}
+      </span>
+      {showDetail ? (
+        <span className="min-w-0 truncate font-mono text-[11px] tabular-nums text-subtle" title={component.detail}>
+          {component.detail}
+        </span>
+      ) : null}
+      {badge ? <span className="shrink-0">{badge}</span> : null}
+    </li>
+  );
+}
+
+/**
+ * The compact form for an operational status service: one line, since
+ * "operational" needs no more room than that. The summary shows only when it
+ * says something beyond the generic all-clear sentence.
+ */
+export function ServiceTile({
+  service,
+  index,
+  emphasized = false,
+}: {
+  service: ServiceSnapshot;
+  index: number;
+  emphasized?: boolean;
+}) {
+  const Icon = CATEGORY_ICON[service.category];
+  const detail = service.summary && service.summary !== ALL_CLEAR_SUMMARY ? service.summary : null;
+
+  return (
+    <article
+      id={serviceAnchor(service.id)}
+      className={cn(
+        "flex scroll-mt-6 items-center gap-3 rounded-2xl glass py-2 pr-1.5 pl-3 stagger-in",
+        emphasized && "service-card-changed",
+      )}
+      style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
+    >
+      <span className="grid size-9 shrink-0 place-items-center rounded-xl glass-inset text-ok" aria-hidden>
+        <Icon className="size-4" strokeWidth={1.75} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <h3 className="flex items-center gap-2 text-sm font-medium tracking-[-0.01em]">
+          <span className="truncate">{service.name}</span>
+          <HealthDot health="operational" />
+          <span className="sr-only">Operational</span>
+        </h3>
+        <p className="line-clamp-2 font-mono text-[11px] text-subtle [overflow-wrap:anywhere]">
+          {detail ?? CATEGORIES.find((category) => category.id === service.category)?.label}
+        </p>
+      </div>
+      <a
+        href={service.sourceUrl}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`${service.sourceName}, official status for ${service.name}`}
+        title={service.sourceName}
+        className="grid size-11 shrink-0 place-items-center rounded-full text-subtle transition-colors duration-[var(--motion-quick)] hover:text-fg"
+      >
+        <ArrowUpRight className="size-4" />
+      </a>
+    </article>
   );
 }

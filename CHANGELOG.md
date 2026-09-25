@@ -6,8 +6,16 @@ Each release's section becomes its GitHub Release notes, so write entries for so
 
 ## [Unreleased]
 
+### Changed
+
+- The board opens with one line naming the worst problem, such as "Outage: Apple", with links to every service that needs attention.
+- Services that need attention come first, worst first. Operational services are compact one-line tiles, and the release trackers have their own section.
+- The filters show how many services each one matches, and the browser tab shows how many need attention.
+
 ### Fixed
 
+- An incident's text no longer appears up to three times on one card, and a long component detail no longer pushes its status badge out of the card.
+- A card with an incident links to that incident instead of the vendor's front page.
 - A Statuspage service in maintenance names the maintenance on its card instead of showing a blank summary.
 - Google Cloud and Google Play incident links point to the incident, not to a malformed address.
 
