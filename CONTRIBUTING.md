@@ -47,38 +47,38 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`.
 
 ## Releases
 
-Status Bar uses [Semantic Versioning](https://semver.org/). Before 1.0, a minor version adds services or changes health rules, and a patch fixes behavior without changing the rules.
+Status Bar uses [Semantic Versioning](https://semver.org/), and every merged pull request with a feature or a fix is its own release, with a `vX.Y.Z` tag and a GitHub Release. Before 1.0, a minor version adds services, features or health rules, and a patch fixes behavior without changing them.
 
-Every pull request with a user-visible change adds a line under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md). Releases are cut from CI:
+Every pull request with a user-visible change adds its lines under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md). Its title is a [Conventional Commit](#commits), because a squash merge makes the title the commit on `main`, and that commit's type picks the version:
 
-1. Open **Actions → Release → Run workflow** on `main`, or run the command below.
-2. Pick `patch`, `minor` or `major` for **bump**.
+| Commit type on `main` | Release |
+| --- | --- |
+| `!` after the type, or a `BREAKING CHANGE:` footer | major |
+| `feat` | minor |
+| `fix`, `perf`, `revert` | patch |
+| `docs`, `ci`, `build`, `chore`, `refactor`, `test`, `style` | none |
 
-```bash
-gh workflow run release.yml --ref main -f bump=minor
-```
+When the merge lands, [`release.yml`](.github/workflows/release.yml):
 
-[`release.yml`](.github/workflows/release.yml) then:
-
-1. Checks the release:
-   - there is something under Unreleased;
+1. Reads every commit since the last tag and takes the largest bump ([`scripts/release/next.sh`](scripts/release/next.sh)). No feature, fix or breaking change means no release.
+2. Checks the release:
    - the new tag doesn't exist yet;
    - typecheck, tests and build pass.
-2. Commits `chore(release): X.Y.Z` to `main`, authored by the account that ran the workflow. The commit updates `package.json`, `package-lock.json` and the changelog, and dates the new changelog section.
-3. Tags that commit `vX.Y.Z`.
-4. Publishes the GitHub Release with the new changelog section as its notes.
+3. Commits `chore(release): X.Y.Z` to `main`, authored by the account that merged. The commit updates `package.json`, `package-lock.json` and the changelog, and turns `## [Unreleased]` into the dated `## [X.Y.Z]` section. If the pull request added nothing under Unreleased, the section is written from the merged commits' subjects instead.
+4. Tags that commit `vX.Y.Z`.
+5. Publishes the GitHub Release with that section as its notes.
 
-If a check fails, or `main` moves while the run is in progress, nothing is committed, tagged or published.
+If a check fails, nothing is committed, tagged or published. When merges land close together, one run releases them together: GitHub keeps only the newest waiting run, and each run releases everything since the last tag. [`pr-title.yml`](.github/workflows/pr-title.yml) fails a pull request whose title is not a Conventional Commit, since such a merge would release nothing.
 
 Other ways in, with the same checks:
 
 | Way | When |
 | --- | --- |
-| **Run workflow** with bump `current` | Publishes the `package.json` version as it is, if it has no tag yet. Use it for the first release (`0.1.0`), or to retry a run that committed the bump but did not publish. |
-| [`scripts/release/bump.sh`](scripts/release/bump.sh) `minor` | Makes the same bump commit locally on `release/vX.Y.Z` for review in a pull request. Merging it tags the merge commit and publishes. |
-| A tag pushed by hand | `git tag -a v0.2.0 -m "Status Bar 0.2.0" && git push origin v0.2.0` publishes that tag, if it matches `package.json` and is on `main`. |
-
-A push to `main` that changes `package.json` without changing the version releases nothing.
+| **Run workflow** with bump `patch`, `minor` or `major` | A release by hand, for merged changes whose types release nothing, such as a `refactor` worth shipping. It needs lines under Unreleased. `gh workflow run release.yml --ref main -f bump=patch` |
+| **Run workflow** with bump `current` | Publishes the `package.json` version as it is, if it has no tag yet. Use it to retry a run that committed the bump but did not publish. |
+| [`scripts/release/bump.sh`](scripts/release/bump.sh) `minor` | Makes the same bump commit locally on `release/vX.Y.Z` for review in a pull request. Merging it releases that version as it is. |
+| **Run workflow** with `version` and `commit` | Backfills an older release: tags that commit on `main` with a version whose section is already in `main`'s changelog, and publishes it without marking it Latest. `gh workflow run release.yml --ref main -f version=0.1.1 -f commit=4cf30fd` |
+| A tag pushed by hand | `git tag -a v0.4.0 -m "Status Bar 0.4.0" && git push origin v0.4.0` publishes that tag, if it matches `package.json` and is on `main`. |
 
 The bump commit and the tag are pushed with the workflow's `GITHUB_TOKEN`, so they start no other workflow and CI does not run on the bump commit itself. The verify job has already checked the same code.
 
