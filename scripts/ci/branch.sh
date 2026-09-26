@@ -8,6 +8,12 @@ name="${1:?usage: branch.sh <branch-name>}"
 prefixes='fb|fix|chore|docs|ci'
 max=50
 
+# The long-lived branches: a pull request from dev into main is a release,
+# and one from main into dev resolves a conflict the release sync hit.
+if [[ "$name" == dev || "$name" == main ]]; then
+  echo "ok  branch  $name (long-lived)"
+  exit 0
+fi
 # Branches that tools name for us: Dependabot updates and bump.sh releases.
 if [[ "$name" =~ ^dependabot/ || "$name" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "ok  branch  $name (named by tooling)"

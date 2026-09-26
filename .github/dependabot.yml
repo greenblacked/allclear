@@ -1,7 +1,10 @@
 version: 2
 updates:
+  # Updates land on dev with the rest of the work, and reach main (and a
+  # release) with the next merge from dev.
   - package-ecosystem: npm
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
     groups:
@@ -17,6 +20,7 @@ updates:
         update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
     groups:

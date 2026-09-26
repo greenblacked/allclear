@@ -9,7 +9,7 @@ name: PR title
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     types: [opened, edited, reopened, synchronize]
 
 permissions:
