@@ -121,6 +121,7 @@ Open the local URL that Vite prints. The first load reads all fourteen sources, 
 **On the board:**
 
 - Filter by Cloud, Gaming, Platforms, AI or Updates, search by name, or switch on **Issues only**
+- Share a filtered view: the search and filters live in the address, so `/?q=aws&issues=true` opens the board already filtered
 - Watch the countdown: the board pulls a new snapshot every two minutes
 - Read the **Board log** to see what changed between two-minute slots
 - Press **Refresh** to skip the cache and ask every vendor right now. Presses within 15 seconds of the last check reuse it

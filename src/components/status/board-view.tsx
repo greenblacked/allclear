@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchStatusBoard, refreshStatusBoard } from "@/lib/status/board";
 import { APP_NAME, CATEGORIES } from "@/lib/status/catalog";
+import { type BoardFilters, matchesFilters } from "@/lib/status/filters";
 import { attentionBreakdown } from "@/lib/status/health";
 import { boardHeadline, documentTitle, groupServices, serviceAnchor } from "@/lib/status/layout";
 import {
@@ -31,12 +32,23 @@ const FILTERS: Array<{ id: "all" | CategoryId; label: string }> = [
   ...CATEGORIES,
 ];
 
-export function BoardView({ initial }: { initial: BoardSnapshot }) {
+export function BoardView({
+  initial,
+  initialFilters,
+  onFiltersChange,
+}: {
+  initial: BoardSnapshot;
+  initialFilters: BoardFilters;
+  /** Called after every filter change, to mirror the filters into the URL. */
+  onFiltersChange: (filters: BoardFilters) => void;
+}) {
   const queryClient = useQueryClient();
   const now = useNow();
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<"all" | CategoryId>("all");
-  const [issuesOnly, setIssuesOnly] = useState(false);
+  // Local state drives the board; the URL follows it. Reading the filters
+  // back from the URL would make every keystroke wait on a router update.
+  const [filters, setFilters] = useState(initialFilters);
+  const { query, category, issuesOnly } = filters;
+  const updateFilters = (patch: Partial<BoardFilters>) => setFilters((current) => ({ ...current, ...patch }));
   const [store, setStore] = useState<PulseStore | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const manualRefreshInFlight = useRef(false);
@@ -84,22 +96,23 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
   }, [board, slot, store]);
 
 
+  const firstFilters = useRef(filters);
+  useEffect(() => {
+    // The URL already says what the board opened with.
+    if (filters === firstFilters.current) return;
+    onFiltersChange(filters);
+  }, [filters, onFiltersChange]);
+
   // The tab shows the attention count, so a background tab still says
   // something broke. The server-rendered <title> stays the plain name.
   useEffect(() => {
     document.title = documentTitle(board, APP_NAME);
   }, [board]);
 
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return board.services.filter((service) => {
-      if (category !== "all" && service.category !== category) return false;
-      if (issuesOnly && service.health === "operational") return false;
-      if (!needle) return true;
-      const hay = `${service.name} ${service.shortName} ${service.summary} ${service.category}`.toLowerCase();
-      return hay.includes(needle);
-    });
-  }, [board.services, category, issuesOnly, query]);
+  const visible = useMemo(
+    () => board.services.filter((service) => matchesFilters(service, filters)),
+    [board.services, filters],
+  );
 
   const issueCount = board.services.length - board.counts.operational;
   const groups = groupServices(visible);
@@ -164,7 +177,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
               <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-subtle" />
               <Input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => updateFilters({ query: event.target.value })}
                 placeholder="Search GCP, CS2 Europe, RouterOS…"
                 className="pl-10"
               />
@@ -182,7 +195,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
                   size="sm"
                   className="shrink-0"
                   aria-pressed={category === filter.id}
-                  onClick={() => setCategory(filter.id)}
+                  onClick={() => updateFilters({ category: filter.id })}
                 >
                   {filter.label}
                   <span className="font-mono text-[11px] tabular-nums opacity-60">{categoryCount(filter.id)}</span>
@@ -193,7 +206,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
                 size="sm"
                 className="shrink-0"
                 aria-pressed={issuesOnly}
-                onClick={() => setIssuesOnly((value) => !value)}
+                onClick={() => updateFilters({ issuesOnly: !issuesOnly })}
               >
                 Issues only
                 <span className="font-mono text-[11px] tabular-nums opacity-60">{issueCount}</span>
