@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as FeedDotxmlRouteImport } from './routes/feed[.]xml'
+import { Route as HealthzRouteImport } from './routes/healthz'
+import { Route as MetricsRouteImport } from './routes/metrics'
 import { Route as ApiStatusDotjsonRouteImport } from './routes/api/status[.]json'
 import { Route as ApiBadgeServiceRouteImport } from './routes/api/badge/$service'
 
@@ -22,6 +24,16 @@ const IndexRoute = IndexRouteImport.update({
 const FeedDotxmlRoute = FeedDotxmlRouteImport.update({
   id: '/feed.xml',
   path: '/feed.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HealthzRoute = HealthzRouteImport.update({
+  id: '/healthz',
+  path: '/healthz',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MetricsRoute = MetricsRouteImport.update({
+  id: '/metrics',
+  path: '/metrics',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiStatusDotjsonRoute = ApiStatusDotjsonRouteImport.update({
@@ -38,12 +50,16 @@ const ApiBadgeServiceRoute = ApiBadgeServiceRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/feed.xml': typeof FeedDotxmlRoute
+  '/healthz': typeof HealthzRoute
+  '/metrics': typeof MetricsRoute
   '/api/status.json': typeof ApiStatusDotjsonRoute
   '/api/badge/$service': typeof ApiBadgeServiceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/feed.xml': typeof FeedDotxmlRoute
+  '/healthz': typeof HealthzRoute
+  '/metrics': typeof MetricsRoute
   '/api/status.json': typeof ApiStatusDotjsonRoute
   '/api/badge/$service': typeof ApiBadgeServiceRoute
 }
@@ -51,21 +67,43 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/feed.xml': typeof FeedDotxmlRoute
+  '/healthz': typeof HealthzRoute
+  '/metrics': typeof MetricsRoute
   '/api/status.json': typeof ApiStatusDotjsonRoute
   '/api/badge/$service': typeof ApiBadgeServiceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/feed.xml' | '/api/status.json' | '/api/badge/$service'
+  fullPaths:
+    | '/'
+    | '/feed.xml'
+    | '/healthz'
+    | '/metrics'
+    | '/api/status.json'
+    | '/api/badge/$service'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/feed.xml' | '/api/status.json' | '/api/badge/$service'
+  to:
+    | '/'
+    | '/feed.xml'
+    | '/healthz'
+    | '/metrics'
+    | '/api/status.json'
+    | '/api/badge/$service'
   id:
-    '__root__' | '/' | '/feed.xml' | '/api/status.json' | '/api/badge/$service'
+    | '__root__'
+    | '/'
+    | '/feed.xml'
+    | '/healthz'
+    | '/metrics'
+    | '/api/status.json'
+    | '/api/badge/$service'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   FeedDotxmlRoute: typeof FeedDotxmlRoute
+  HealthzRoute: typeof HealthzRoute
+  MetricsRoute: typeof MetricsRoute
   ApiStatusDotjsonRoute: typeof ApiStatusDotjsonRoute
   ApiBadgeServiceRoute: typeof ApiBadgeServiceRoute
 }
@@ -84,6 +122,20 @@ declare module '@tanstack/react-router' {
       path: '/feed.xml'
       fullPath: '/feed.xml'
       preLoaderRoute: typeof FeedDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/healthz': {
+      id: '/healthz'
+      path: '/healthz'
+      fullPath: '/healthz'
+      preLoaderRoute: typeof HealthzRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/metrics': {
+      id: '/metrics'
+      path: '/metrics'
+      fullPath: '/metrics'
+      preLoaderRoute: typeof MetricsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/status.json': {
@@ -106,6 +158,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   FeedDotxmlRoute: FeedDotxmlRoute,
+  HealthzRoute: HealthzRoute,
+  MetricsRoute: MetricsRoute,
   ApiStatusDotjsonRoute: ApiStatusDotjsonRoute,
   ApiBadgeServiceRoute: ApiBadgeServiceRoute,
 }

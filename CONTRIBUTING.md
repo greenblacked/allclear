@@ -38,6 +38,45 @@ Rules:
 
 Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`.
 
+## Branches
+
+Branch from `main` as `<prefix>/<short-kebab-description>`:
+
+| Prefix | Use for | Example |
+| --- | --- | --- |
+| `fb/` | Feature: new capability | `fb/board-metrics-stars-shortcuts` |
+| `fix/` | Bug | `fix/42-aws-stale-events` |
+| `chore/` | Pins, tooling, housekeeping | `chore/bump-tanstack-start` |
+| `docs/` | Documentation only | `docs/readme-integrations` |
+| `ci/` | Workflow changes | `ci/cache-actionlint-image` |
+
+- **The description** is two to five lowercase words joined by single hyphens, saying what changes. Use only `a-z`, `0-9` and `-`, and keep the whole name to 50 characters.
+- **An issue number** goes first in the description when there is one: `fix/42-aws-stale-events`.
+- **Refactors, tests, builds and performance work** use `chore/`, unless they fix a bug (`fix/`).
+- **The prefix is not the commit type.** The pull request title is still a [Conventional Commit](#commits), and it picks the [release](#releases): an `fb/` branch has a `feat:` title.
+- **Tooling names its own branches.** Dependabot opens `dependabot/…`, and [`scripts/release/bump.sh`](scripts/release/bump.sh) opens `release/vX.Y.Z`. Don't create either by hand.
+
+[`pr-title.yml`](.github/workflows/pr-title.yml) fails a pull request whose branch breaks these rules. Check a name before pushing:
+
+```bash
+./scripts/ci/branch.sh "$(git branch --show-current)"
+```
+
+| Not | Instead | Why |
+| --- | --- | --- |
+| `feature/Board_Metrics` | `fb/board-metrics` | One prefix per kind of change, lowercase, hyphens only |
+| `fix-aws` | `fix/aws-stale-events` | The slash lets Git clients group branches, and the description says what is fixed |
+| `username/readme` | `docs/readme-integrations` | Say what changes, not who changes it; the commit author already records who |
+| `wip-2026-09-25` | `chore/pin-node-22` | A date says nothing about the change |
+
+Rules:
+
+- Branch from an up-to-date `main`, and open one pull request per branch.
+- Bring `main` in with a merge, not a rebase, once the branch is pushed. Others may have it checked out (see [docs/git-and-readme.md](docs/git-and-readme.md#authorship)).
+- Keep the name when the work grows: a pull request cannot move to another branch, so renaming one means opening a new pull request.
+- Delete the branch once it is merged.
+- `main` takes changes only through pull requests, apart from the release commit CI pushes.
+
 ## Pull requests
 
 - Keep the default branch green

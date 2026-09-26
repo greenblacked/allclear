@@ -1,18 +1,22 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, BellOff, BellRing, RefreshCw, Search } from "lucide-react";
+import { Bell, BellOff, BellRing, RefreshCw, Search, Star } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useCountUp, useSpotlight, withViewTransition } from "@/components/status/effects";
 import { HealthDot } from "@/components/status/health-dot";
 import { LiveBar } from "@/components/status/live-bar";
 import { ServiceCard, ServiceTile } from "@/components/status/service-card";
+import { ShortcutsDialog } from "@/components/status/shortcuts-dialog";
 import { UpdateFeed } from "@/components/status/update-feed";
 import { type AlertsState, useBoardAlerts } from "@/components/status/use-alerts";
+import { useShortcuts } from "@/components/status/use-shortcuts";
+import { useStarred } from "@/components/status/use-starred";
 import { useNow } from "@/components/status/use-now";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchStatusBoard, refreshStatusBoard } from "@/lib/status/board";
 import { APP_NAME, CATEGORIES } from "@/lib/status/catalog";
+import { type BoardFilters, DEFAULT_FILTERS, matchesFilters } from "@/lib/status/filters";
 import { attentionBreakdown } from "@/lib/status/health";
 import { boardHeadline, documentTitle, groupServices, serviceAnchor } from "@/lib/status/layout";
 import {
@@ -23,6 +27,7 @@ import {
   type PulseStore,
 } from "@/lib/status/pulse";
 import { CACHE_TTL_MS, lastPulseAt, LIVE_REFETCH_MS } from "@/lib/status/schedule";
+import { starredFirst } from "@/lib/status/starred";
 import type { BoardSnapshot, CategoryId, ServiceSnapshot } from "@/lib/status/types";
 import { cn } from "@/lib/utils";
 
@@ -31,16 +36,29 @@ const FILTERS: Array<{ id: "all" | CategoryId; label: string }> = [
   ...CATEGORIES,
 ];
 
-export function BoardView({ initial }: { initial: BoardSnapshot }) {
+export function BoardView({
+  initial,
+  initialFilters,
+  onFiltersChange,
+}: {
+  initial: BoardSnapshot;
+  initialFilters: BoardFilters;
+  /** Called after every filter change, to mirror the filters into the URL. */
+  onFiltersChange: (filters: BoardFilters) => void;
+}) {
   const queryClient = useQueryClient();
   const now = useNow();
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<"all" | CategoryId>("all");
-  const [issuesOnly, setIssuesOnly] = useState(false);
+  // Local state drives the board; the URL follows it. Reading the filters
+  // back from the URL would make every keystroke wait on a router update.
+  const [filters, setFilters] = useState(initialFilters);
+  const { query, category, issuesOnly, starredOnly } = filters;
+  const updateFilters = (patch: Partial<BoardFilters>) => setFilters((current) => ({ ...current, ...patch }));
   const [store, setStore] = useState<PulseStore | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const manualRefreshInFlight = useRef(false);
   const mainRef = useRef<HTMLElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   useSpotlight(mainRef);
 
   const boardQuery = useQuery({
@@ -66,6 +84,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
   const board = boardQuery.data ?? initial;
   const headline = boardHeadline(board);
   const alerts = useBoardAlerts(board);
+  const { starred, ready: starsReady, toggle: toggleStar } = useStarred();
   const pulseStore = store ?? emptyPulseStore();
   const changedIds = new Set(
     (pulseStore.pulses[0]?.opening ? [] : pulseStore.pulses[0]?.changes ?? []).map(
@@ -84,24 +103,31 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
   }, [board, slot, store]);
 
 
+  const firstFilters = useRef(filters);
+  useEffect(() => {
+    // The URL already says what the board opened with.
+    if (filters === firstFilters.current) return;
+    onFiltersChange(filters);
+  }, [filters, onFiltersChange]);
+
   // The tab shows the attention count, so a background tab still says
   // something broke. The server-rendered <title> stays the plain name.
   useEffect(() => {
     document.title = documentTitle(board, APP_NAME);
   }, [board]);
 
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return board.services.filter((service) => {
-      if (category !== "all" && service.category !== category) return false;
-      if (issuesOnly && service.health === "operational") return false;
-      if (!needle) return true;
-      const hay = `${service.name} ${service.shortName} ${service.summary} ${service.category}`.toLowerCase();
-      return hay.includes(needle);
-    });
-  }, [board.services, category, issuesOnly, query]);
+  const visible = useMemo(
+    () =>
+      starredFirst(
+        board.services.filter((service) => matchesFilters(service, filters, starred)),
+        starred,
+      ),
+    [board.services, filters, starred],
+  );
 
   const issueCount = board.services.length - board.counts.operational;
+  // Starring moves a card, so it glides there like a refresh does.
+  const onToggleStar = (id: ServiceSnapshot["id"]) => withViewTransition(() => toggleStar(id));
   const groups = groupServices(visible);
   const categoryCount = (id: "all" | CategoryId) =>
     id === "all" ? board.services.length : board.services.filter((service) => service.category === id).length;
@@ -122,6 +148,38 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
   }
 
   const fetching = boardQuery.isFetching || refreshing;
+
+  useShortcuts((action) => {
+    switch (action.type) {
+      case "focus-search":
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      case "leave-search":
+        // First Escape clears the search, the next one leaves the field.
+        if (query && document.activeElement === searchRef.current) updateFilters({ query: "" });
+        else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        return;
+      case "refresh":
+        void handleRefresh();
+        return;
+      case "category":
+        updateFilters({ category: action.category });
+        return;
+      case "toggle-issues":
+        updateFilters({ issuesOnly: !issuesOnly });
+        return;
+      case "toggle-starred":
+        updateFilters({ starredOnly: !starredOnly });
+        return;
+      case "reset":
+        setFilters(DEFAULT_FILTERS);
+        return;
+      case "help":
+        setShortcutsOpen(true);
+        return;
+    }
+  });
 
   return (
     <div className="liquid-stage text-fg">
@@ -163,11 +221,18 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
               <span className="sr-only">Search services</span>
               <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-subtle" />
               <Input
+                ref={searchRef}
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => updateFilters({ query: event.target.value })}
                 placeholder="Search GCP, CS2 Europe, RouterOS…"
-                className="pl-10"
+                className="pl-10 sm:pr-10"
               />
+              <kbd
+                aria-hidden
+                className="pointer-events-none absolute top-1/2 right-3.5 hidden -translate-y-1/2 rounded-md glass-inset px-1.5 font-mono text-[11px] text-subtle sm:block"
+              >
+                /
+              </kbd>
             </label>
             {/* One scrolling row on phones instead of three wrapped ones. */}
             <div
@@ -182,7 +247,7 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
                   size="sm"
                   className="shrink-0"
                   aria-pressed={category === filter.id}
-                  onClick={() => setCategory(filter.id)}
+                  onClick={() => updateFilters({ category: filter.id })}
                 >
                   {filter.label}
                   <span className="font-mono text-[11px] tabular-nums opacity-60">{categoryCount(filter.id)}</span>
@@ -193,10 +258,21 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
                 size="sm"
                 className="shrink-0"
                 aria-pressed={issuesOnly}
-                onClick={() => setIssuesOnly((value) => !value)}
+                onClick={() => updateFilters({ issuesOnly: !issuesOnly })}
               >
                 Issues only
                 <span className="font-mono text-[11px] tabular-nums opacity-60">{issueCount}</span>
+              </Button>
+              <Button
+                variant={starredOnly ? "default" : "outline"}
+                size="sm"
+                className="shrink-0"
+                aria-pressed={starredOnly}
+                onClick={() => updateFilters({ starredOnly: !starredOnly })}
+              >
+                <Star className={cn("size-3.5", starredOnly && "fill-current")} />
+                Starred
+                <span className="font-mono text-[11px] tabular-nums opacity-60">{starred.size}</span>
               </Button>
             </div>
           </div>
@@ -218,7 +294,14 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
                   ))}
                 </div>
               ) : visible.length === 0 ? (
-                <p className="rounded-3xl glass px-5 py-10 text-center text-muted">No services match that filter.</p>
+                // Stars load after hydration; until then an empty Starred view proves nothing.
+                starredOnly && !starsReady ? null : (
+                  <p className="rounded-3xl glass px-5 py-10 text-center text-muted">
+                    {starredOnly && starred.size === 0
+                      ? "No starred services yet. Star a card to keep it here and at the top of the board."
+                      : "No services match that filter."}
+                  </p>
+                )
               ) : (
                 <>
                   <ServiceSection id="attention" title="Needs attention" services={groups.attention}>
@@ -229,6 +312,8 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
                           service={service}
                           index={index}
                           emphasized={changedIds.has(service.id)}
+                          starred={starred.has(service.id)}
+                          onToggleStar={onToggleStar}
                         />
                       ))}
                     </div>
@@ -241,6 +326,8 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
                           service={service}
                           index={index}
                           emphasized={changedIds.has(service.id)}
+                          starred={starred.has(service.id)}
+                          onToggleStar={onToggleStar}
                         />
                       ))}
                     </div>
@@ -253,6 +340,8 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
                           service={service}
                           index={index}
                           emphasized={changedIds.has(service.id)}
+                          starred={starred.has(service.id)}
+                          onToggleStar={onToggleStar}
                         />
                       ))}
                     </div>
@@ -285,7 +374,20 @@ export function BoardView({ initial }: { initial: BoardSnapshot }) {
               </a>
               .
             </p>
+            <p className="hidden sm:block">
+              Press{" "}
+              <kbd className="rounded-md glass-inset px-1.5 font-mono text-[11px] text-muted">?</kbd> for{" "}
+              <button
+                type="button"
+                className="underline decoration-border underline-offset-4 hover:text-fg"
+                onClick={() => setShortcutsOpen(true)}
+              >
+                keyboard shortcuts
+              </button>
+              .
+            </p>
           </footer>
+          <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
         </main>
       </div>
     </div>

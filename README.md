@@ -121,6 +121,9 @@ Open the local URL that Vite prints. The first load reads all fourteen sources, 
 **On the board:**
 
 - Filter by Cloud, Gaming, Platforms, AI or Updates, search by name, or switch on **Issues only**
+- Star the services you care about: they sort first, and **Starred** shows only them
+- Drive it from the keyboard: `/` searches, `1`–`6` pick a filter, `I` and `S` toggle Issues only and Starred, `R` refreshes, `Esc` clears, and `?` lists them all
+- Share a filtered view: the search and filters live in the address, so `/?q=aws&issues=true` opens the board already filtered
 - Watch the countdown: the board pulls a new snapshot every two minutes
 - Read the **Board log** to see what changed between two-minute slots
 - Press **Refresh** to skip the cache and ask every vendor right now. Presses within 15 seconds of the last check reuse it
@@ -129,13 +132,16 @@ Open the local URL that Vite prints. The first load reads all fourteen sources, 
 
 ## Integrations
 
-The board publishes what it shows in three open formats. All three come from the same two-minute snapshot as the page, allow cross-origin reads, and are cached for a minute.
+The board publishes what it shows in four open formats. All four come from the same two-minute snapshot as the page, allow cross-origin reads, and are cached for a minute.
 
 | Endpoint | Format | Use it for |
 | --- | --- | --- |
 | `/api/status.json` | JSON: overall health, headline, counts, and each service's health, summary, source and incidents | Scripts, dashboards, chat bots |
 | `/feed.xml` | Atom, one entry per service that needs attention | Alerts in Slack, Teams, Discord or a feed reader |
 | `/api/badge/<service>` | [Shields.io endpoint badge](https://shields.io/badges/endpoint-badge) | A live status badge in a README or wiki |
+| `/metrics` | [Prometheus text format](https://prometheus.io/docs/instrumenting/exposition_formats/#text-based-format): each service's state, incidents and source reachability | Prometheus, Grafana and Alertmanager |
+
+`/healthz` answers `ok` for load balancer and Kubernetes liveness probes. It never reads the board, so a slow vendor cannot fail the probe.
 
 **Alerts without code.** Subscribe a chat tool to the feed:
 
@@ -156,12 +162,60 @@ Service ids: `gcp`, `aws`, `steam`, `cs2-europe`, `epic`, `fortnite`, `spotify`,
 
 Shields.io fetches the badge from your host, so badges need a public deployment.
 
+**Prometheus.** Scrape `/metrics` once a minute. The server reuses a snapshot for 45 seconds and the response is cached for a minute, so scraping faster only repeats the same values, and a scrape that finds the snapshot expired starts a new read of every vendor.
+
+```yaml
+scrape_configs:
+  - job_name: status-bar
+    scrape_interval: 60s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["status-bar.example.internal:3000"]
+```
+
+| Metric | Labels | Value |
+| --- | --- | --- |
+| `statusbar_service_status` | `service`, `category`, `status` | 1 for the service's current state, 0 for the other four |
+| `statusbar_service_incidents` | `service`, `category` | Incidents the official source lists |
+| `statusbar_source_up` | `service`, `category` | 1 if the source was read, 0 if its collector failed |
+| `statusbar_source_latency_seconds` | `service`, `category` | Time the source took to answer |
+| `statusbar_services` | `status` | Services in each state |
+| `statusbar_snapshot_timestamp_seconds` | | When the snapshot was collected |
+| `statusbar_snapshot_duration_seconds` | | Time the snapshot took to read every source |
+
+Alert rules to start from:
+
+```yaml
+groups:
+  - name: status-bar
+    rules:
+      - alert: VendorOutage
+        expr: statusbar_service_status{status="outage"} == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} reports an outage"
+      - alert: StatusBarSourceUnreadable
+        expr: statusbar_source_up == 0
+        for: 15m
+        annotations:
+          summary: "Status Bar cannot read the official source for {{ $labels.service }}"
+      - alert: StatusBarSnapshotStale
+        expr: time() - statusbar_snapshot_timestamp_seconds > 600
+        for: 5m
+        annotations:
+          summary: "Status Bar has not collected a snapshot for over 10 minutes"
+```
+
 **Quick check:**
 
 ```bash
 curl -s http://localhost:3000/api/status.json | jq '.overall, .headline'
 curl -s http://localhost:3000/feed.xml | head -20
 curl -s http://localhost:3000/api/badge/gcp
+curl -s http://localhost:3000/metrics | grep 'status="outage"'
+curl -s http://localhost:3000/healthz
 ```
 
 ## FAQ
@@ -218,7 +272,7 @@ The status page's JSON API sits behind a Cloudflare challenge, so the official R
 
 <br>
 
-The server holds only the latest snapshot, in memory, and reuses it for up to 45 seconds. Nothing is written to disk or a database. The Board log lives in your browser's local storage and keeps the last two hours, next to your alerts on/off choice. Private windows or blocked site data leave it empty.
+The server holds only the latest snapshot, in memory, and reuses it for up to 45 seconds. Nothing is written to disk or a database. The Board log lives in your browser's local storage and keeps the last two hours, next to your alerts on/off choice and your starred services. Private windows or blocked site data leave it empty.
 
 </details>
 

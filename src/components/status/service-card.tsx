@@ -1,4 +1,4 @@
-import { ArrowUpRight, Cloud, Cpu, Gamepad2, History, Smartphone } from "lucide-react";
+import { ArrowUpRight, Cloud, Cpu, Gamepad2, History, Smartphone, Star } from "lucide-react";
 import { HealthDot } from "@/components/status/health-dot";
 import { Badge } from "@/components/ui/badge";
 import { CATEGORIES } from "@/lib/status/catalog";
@@ -35,10 +35,14 @@ export function ServiceCard({
   service,
   index,
   emphasized = false,
+  starred,
+  onToggleStar,
 }: {
   service: ServiceSnapshot;
   index: number;
   emphasized?: boolean;
+  starred: boolean;
+  onToggleStar: (id: ServiceSnapshot["id"]) => void;
 }) {
   const Icon = CATEGORY_ICON[service.category];
   const changelog = service.category === "updates";
@@ -81,10 +85,13 @@ export function ServiceCard({
             </p>
           </div>
         </div>
-        <Badge tone={service.health} className="shrink-0 gap-1.5 pr-2.5 pl-2">
-          <HealthDot health={service.health} />
-          {healthLabel(service.health)}
-        </Badge>
+        <div className="flex shrink-0 items-center">
+          <Badge tone={service.health} className="gap-1.5 pr-2.5 pl-2">
+            <HealthDot health={service.health} />
+            {healthLabel(service.health)}
+          </Badge>
+          <StarButton name={service.name} starred={starred} onToggle={() => onToggleStar(service.id)} className="-my-2 -mr-2" />
+        </div>
       </div>
 
       <p className="mt-4 text-sm leading-relaxed text-muted text-pretty [overflow-wrap:anywhere]">{service.summary}</p>
@@ -173,10 +180,14 @@ export function ServiceTile({
   service,
   index,
   emphasized = false,
+  starred,
+  onToggleStar,
 }: {
   service: ServiceSnapshot;
   index: number;
   emphasized?: boolean;
+  starred: boolean;
+  onToggleStar: (id: ServiceSnapshot["id"]) => void;
 }) {
   const Icon = CATEGORY_ICON[service.category];
   const detail = service.summary && service.summary !== ALL_CLEAR_SUMMARY ? service.summary : null;
@@ -203,6 +214,7 @@ export function ServiceTile({
           {detail ?? CATEGORIES.find((category) => category.id === service.category)?.label}
         </p>
       </div>
+      <StarButton name={service.name} starred={starred} onToggle={() => onToggleStar(service.id)} />
       <a
         href={service.sourceUrl}
         target="_blank"
@@ -214,5 +226,39 @@ export function ServiceTile({
         <ArrowUpRight className="size-4" />
       </a>
     </article>
+  );
+}
+
+/**
+ * Stars a service so it sorts first and shows under the Starred filter. It is
+ * a preference, not a status, so it stays neutral rather than taking a
+ * status colour.
+ */
+function StarButton({
+  name,
+  starred,
+  onToggle,
+  className,
+}: {
+  name: string;
+  starred: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={starred}
+      aria-label={`Star ${name}`}
+      title={starred ? `Unstar ${name}` : `Star ${name} to keep it first`}
+      className={cn(
+        "grid size-11 shrink-0 place-items-center rounded-full transition-colors duration-[var(--motion-quick)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60",
+        starred ? "text-fg" : "text-subtle hover:text-fg",
+        className,
+      )}
+    >
+      <Star className={cn("size-4", starred && "fill-current")} strokeWidth={1.75} />
+    </button>
   );
 }
