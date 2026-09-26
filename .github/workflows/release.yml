@@ -2,13 +2,19 @@ name: Release
 
 # Publishes a GitHub Release whose notes are that version's CHANGELOG.md
 # section, and creates its vX.Y.Z tag. Ways in:
-#   - Run workflow with bump = patch, minor or major: bumps the version and
-#     dates the changelog in a commit on main authored by whoever clicked,
-#     then tags that commit and publishes. The usual way to release.
-#   - Run workflow with bump = current: publishes the package.json version
-#     as it is, if it has no tag yet (the first release, or a retry).
-#   - Merging a pull request that changes the version in package.json,
-#     for example one from scripts/release/bump.sh: tags the merge commit.
+#   - Merging a pull request into main. The Conventional Commits merged since
+#     the last release pick the next version (scripts/release/next.sh): a
+#     breaking change is major, feat minor, fix, perf or revert patch, and
+#     anything else releases nothing. CI commits the bump to main, authored
+#     by whoever merged, then tags it and publishes. The usual way to release.
+#   - Merging a pull request that sets an untagged version in package.json,
+#     for example one from scripts/release/bump.sh: releases that version.
+#   - Run workflow with bump = patch, minor or major: the same bump, by hand.
+#   - Run workflow with bump = current: publishes the package.json version as
+#     it is, if it has no tag yet (a retry).
+#   - Run workflow with version and commit: backfills an older release by
+#     tagging that commit on main with a version that already has a
+#     CHANGELOG.md section on main.
 #   - Pushing a vX.Y.Z tag by hand.
 # The release has to be on main, have a changelog section and pass the same
 # checks as CI. If any check fails, nothing is committed, tagged or
@@ -18,8 +24,6 @@ on:
   push:
     branches: [main]
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
-    # Filters the branch push only. GitHub does not apply paths to tag pushes.
-    paths: [package.json]
   workflow_dispatch:
     inputs:
       bump:
@@ -27,10 +31,21 @@ on:
         type: choice
         options: [current, patch, minor, major]
         default: current
+      version:
+        description: 'Backfill only: an older X.Y.Z that has a CHANGELOG.md section on main. Leave empty otherwise.'
+        type: string
+        default: ''
+      commit:
+        description: 'Backfill only: the commit on main to tag as that version.'
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
+# One release at a time. GitHub keeps only the newest pending run, which is
+# enough: a merge run plans from main as it is when it starts, so it also
+# releases any merge whose own run was dropped.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -42,13 +57,16 @@ jobs:
     timeout-minutes: 5
     outputs:
       release: ${{ steps.plan.outputs.release }}
+      mode: ${{ steps.plan.outputs.mode }}
+      level: ${{ steps.plan.outputs.level }}
       tag: ${{ steps.plan.outputs.tag }}
+      sha: ${{ steps.plan.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Full history, branches and tags: main ancestry, the previous
-          # package.json and existing tags are all read below.
+          # Full history, branches and tags: main ancestry, commit types since
+          # the last tag and existing tags are all read below.
           fetch-depth: 0
 
       - name: Decide whether this run releases
@@ -57,54 +75,87 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
-          BEFORE: ${{ github.event.before }}
           BUMP: ${{ inputs.bump }}
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ inputs.commit }}
         run: |
           skip() { echo "::notice::$1"; echo "release=false" >>"$GITHUB_OUTPUT"; exit 0; }
+          fail() { echo "::error::$1"; exit 1; }
+          out() { echo "$1=$2" >>"$GITHUB_OUTPUT"; }
+          version_at() { git show "$1:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version"; }
+          # The dry-run bump commits below are thrown away with the runner.
+          git config user.name plan
+          git config user.email plan@localhost
 
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::$GITHUB_SHA is not on main; only main is released"
-            exit 1
-          fi
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main ||
+            fail "$GITHUB_SHA is not on main; only main is released"
 
-          if [ "$EVENT" = workflow_dispatch ] && [ "$BUMP" != current ]; then
-            # A dry run of the bump publish will make: it validates the
-            # changelog and the new tag, and its commit is thrown away.
-            git config user.name plan
-            git config user.email plan@localhost
-            ./scripts/release/bump.sh --ci "$BUMP"
-            version="$(node -p "require('./package.json').version")"
-            echo "tag=v$version" >>"$GITHUB_OUTPUT"
-            echo "release=true" >>"$GITHUB_OUTPUT"
+          # Backfill: tag an older commit with a version main's changelog has.
+          if [ "$EVENT" = workflow_dispatch ] && [ -n "$VERSION$COMMIT" ]; then
+            if [ -z "$VERSION" ] || [ -z "$COMMIT" ]; then
+              fail "a backfill needs both version and commit"
+            fi
+            [ "$BUMP" = current ] || fail "leave bump at current for a backfill"
+            [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "'$VERSION' is not a MAJOR.MINOR.PATCH version"
+            sha="$(git rev-parse -q --verify "$COMMIT^{commit}")" || fail "no commit $COMMIT"
+            git merge-base --is-ancestor "$sha" origin/main || fail "$COMMIT is not on main"
+            current="$(version_at origin/main)"
+            newest="$(printf '%s\n%s\n' "$VERSION" "$current" | sort -V | tail -n1)"
+            if [ "$VERSION" = "$current" ] || [ "$newest" != "$current" ]; then
+              fail "a backfill is for versions older than $current; release $current with bump = current"
+            fi
+            tag="v$VERSION"
+            if existing="$(git rev-parse -q --verify "refs/tags/$tag^{commit}")" && [ "$existing" != "$sha" ]; then
+              fail "$tag already exists on $existing"
+            fi
+            git show origin/main:CHANGELOG.md >"$RUNNER_TEMP/CHANGELOG.md"
+            CHANGELOG="$RUNNER_TEMP/CHANGELOG.md" ./scripts/ci/release-notes.sh "$VERSION" >/dev/null
+            out mode backfill; out tag "$tag"; out sha "$sha"; out release true
             exit 0
           fi
 
-          version="$(node -p "require('./package.json').version")"
-          tag="v$version"
-          echo "tag=$tag" >>"$GITHUB_OUTPUT"
-
-          if [ "$REF_TYPE" = tag ]; then
-            if [ "$REF_NAME" != "$tag" ]; then
-              echo "::error::tag $REF_NAME does not match package.json version $version"
-              exit 1
-            fi
-          else
-            # A push to main releases only when it changed the version, so a
-            # dependency update that touches package.json releases nothing.
-            if [ "$EVENT" = push ]; then
-              previous="$(git show "$BEFORE:package.json" 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" 2>/dev/null || true)"
-              [ "$previous" != "$version" ] || skip "package.json version is still $version; nothing to release"
-            fi
-            if existing="$(git rev-parse -q --verify "refs/tags/$tag^{commit}")"; then
-              if [ "$existing" != "$GITHUB_SHA" ]; then
-                echo "::error::$tag already exists on $existing; run this workflow with bump = patch, minor or major"
-                exit 1
-              fi
-            fi
+          # Run workflow with a bump: a dry run of the commit publish will make.
+          if [ "$EVENT" = workflow_dispatch ] && [ "$BUMP" != current ]; then
+            out sha "$(git rev-parse HEAD)"
+            ./scripts/release/bump.sh --ci "$BUMP"
+            out mode bump; out level "$BUMP"; out tag "v$(node -p "require('./package.json').version")"; out release true
+            exit 0
           fi
 
+          # A merge to main. Plan from main as it is now, not only this push:
+          # a newer merge may already be there, and its run may have been
+          # dropped from the queue (see concurrency).
+          if [ "$EVENT" = push ] && [ "$REF_TYPE" = branch ]; then
+            head="$(git rev-parse origin/main)"
+            tag="v$(version_at "$head")"
+            out sha "$head"
+            git checkout --quiet --detach "$head"
+            if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              # The merge set a new version (bump.sh), or that version's
+              # release never published: release it as it is.
+              ./scripts/ci/release-notes.sh "${tag#v}" >/dev/null
+              out mode current; out tag "$tag"; out release true
+              exit 0
+            fi
+            level="$(./scripts/release/next.sh level "$tag..HEAD")"
+            [ "$level" != none ] || skip "no feat, fix or breaking change since $tag; nothing to release"
+            ./scripts/release/next.sh notes "$tag..HEAD" >"$RUNNER_TEMP/fallback-notes.md"
+            ./scripts/release/bump.sh --ci --fallback-notes "$RUNNER_TEMP/fallback-notes.md" "$level"
+            out mode auto; out level "$level"; out tag "v$(node -p "require('./package.json').version")"; out release true
+            exit 0
+          fi
+
+          # Run workflow with bump = current, or a tag pushed by hand.
+          version="$(node -p "require('./package.json').version")"
+          tag="v$version"
+          if [ "$REF_TYPE" = tag ] && [ "$REF_NAME" != "$tag" ]; then
+            fail "tag $REF_NAME does not match package.json version $version"
+          fi
+          if existing="$(git rev-parse -q --verify "refs/tags/$tag^{commit}")" && [ "$existing" != "$GITHUB_SHA" ]; then
+            fail "$tag already exists on $existing; run this workflow with bump = patch, minor or major"
+          fi
           ./scripts/ci/release-notes.sh "$version" >/dev/null
-          echo "release=true" >>"$GITHUB_OUTPUT"
+          out mode current; out tag "$tag"; out sha "$GITHUB_SHA"; out release true
 
   verify:
     name: verify release
@@ -116,6 +167,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The code being released: before any bump commit, which changes
+          # only the version and the changelog.
+          ref: ${{ needs.plan.outputs.sha }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
@@ -140,45 +194,86 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # A backfill tags an older commit but takes its scripts and notes
+          # from main, where its changelog section is. Everything else works
+          # on the commit plan chose.
+          ref: ${{ needs.plan.outputs.mode == 'backfill' && github.sha || needs.plan.outputs.sha }}
           # Kept only when this job has a bump commit to push to main.
-          persist-credentials: ${{ github.event_name == 'workflow_dispatch' && inputs.bump != 'current' }}
+          persist-credentials: ${{ needs.plan.outputs.mode == 'bump' || needs.plan.outputs.mode == 'auto' }}
 
       - name: Commit the version bump to main
-        if: github.event_name == 'workflow_dispatch' && inputs.bump != 'current'
+        id: bump
+        if: needs.plan.outputs.mode == 'bump' || needs.plan.outputs.mode == 'auto'
         env:
-          BUMP: ${{ inputs.bump }}
+          MODE: ${{ needs.plan.outputs.mode }}
+          LEVEL: ${{ needs.plan.outputs.level }}
           TAG: ${{ needs.plan.outputs.tag }}
+          SHA: ${{ needs.plan.outputs.sha }}
           ACTOR: ${{ github.actor }}
           ACTOR_ID: ${{ github.actor_id }}
         run: |
-          # Authored by the account that ran the workflow, not a bot.
+          # A merge run whose main moved on hands over to the newer push's
+          # run, which plans from the newer main and releases these commits
+          # too. A run started by hand fails instead, so it can be re-run.
+          moved() {
+            if [ "$MODE" = auto ]; then
+              echo "::notice::main moved after this run planned; the run for the newer push releases these changes"
+              echo "published=false" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::main moved after this run started; run it again"
+            exit 1
+          }
+          [ "$(git rev-parse origin/main)" = "$SHA" ] || moved
+
+          # Authored by the account that merged or ran the workflow, not a bot.
           git config user.name "$ACTOR"
           git config user.email "$ACTOR_ID+$ACTOR@users.noreply.github.com"
-          ./scripts/release/bump.sh --ci "$BUMP"
+          fallback=()
+          if [ "$MODE" = auto ]; then
+            notes="$RUNNER_TEMP/fallback-notes.md"
+            ./scripts/release/next.sh notes "v$(node -p "require('./package.json').version")..HEAD" >"$notes"
+            fallback=(--fallback-notes "$notes")
+          fi
+          ./scripts/release/bump.sh --ci "${fallback[@]}" "$LEVEL"
           version="$(node -p "require('./package.json').version")"
           if [ "v$version" != "$TAG" ]; then
             echo "::error::bumped to v$version, but plan expected $TAG"
             exit 1
           fi
-          # Fails without force if main moved since the run started, so a
+          # Fails without force if main moved since the checks above, so a
           # concurrent merge is never overwritten.
-          git push origin "HEAD:refs/heads/main"
+          git push origin "HEAD:refs/heads/main" || moved
 
       - name: Tag and publish the GitHub Release
+        if: steps.bump.outputs.published != 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          MODE: ${{ needs.plan.outputs.mode }}
           TAG: ${{ needs.plan.outputs.tag }}
+          SHA: ${{ needs.plan.outputs.sha }}
         run: |
           notes="$RUNNER_TEMP/release-notes.md"
           ./scripts/ci/release-notes.sh "${TAG#v}" >"$notes"
+          # The bump commit, or the commit this run was started for. A
+          # backfill tags the older commit plan checked.
+          target="$(git rev-parse HEAD)"
+          if [ "$MODE" = backfill ]; then
+            target="$SHA"
+          fi
+          # Only the newest version is Latest, so a backfill never takes the
+          # badge from a newer release.
+          latest=false
+          if [ "$( { git tag --list 'v*.*.*'; echo "$TAG"; } | sort -V | tail -n1)" = "$TAG" ]; then
+            latest=true
+          fi
           # A re-run updates the existing release instead of failing on it.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "Status Bar $TAG" --notes-file "$notes"
+            gh release edit "$TAG" --title "Status Bar $TAG" --notes-file "$notes" --latest="$latest"
           else
-            # Creates the tag on HEAD: the bump commit, or the commit this
-            # run was started for. A tag pushed by hand already points there
-            # and is used as it is. Neither the tag nor a bump pushed with
-            # GITHUB_TOKEN starts this workflow again.
-            gh release create "$TAG" --target "$(git rev-parse HEAD)" --title "Status Bar $TAG" --notes-file "$notes"
+            # Creates the tag on target. A tag pushed by hand already points
+            # there and is used as it is. Neither the tag nor a bump pushed
+            # with GITHUB_TOKEN starts this workflow again.
+            gh release create "$TAG" --target "$target" --title "Status Bar $TAG" --notes-file "$notes" --latest="$latest"
           fi

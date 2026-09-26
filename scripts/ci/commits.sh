@@ -1,11 +1,58 @@
 #!/usr/bin/env bash
 # Enforce the Conventional Commits rules from CONTRIBUTING.md on a commit range.
 # Run locally: ./scripts/ci/commits.sh origin/main..HEAD
+#   ./scripts/ci/commits.sh --subject "feat: add a feed"
+#     Checks one subject, such as a pull request title: a squash merge makes
+#     it the commit on main, and release.yml reads its type.
 set -euo pipefail
 
-range="${1:-origin/main..HEAD}"
 types='feat|fix|docs|refactor|test|chore|perf|ci|build|style|revert'
 fail=0
+
+# Prints "ok" or the problems with one subject; sets fail=1 on a problem.
+check() {
+  local label="$1" subject="$2" bad=0
+
+  if ! printf '%s' "$subject" | grep -qE "^($types)(\([a-z0-9._/-]+\))?!?: .+"; then
+    echo "::error::$label  not a Conventional Commit: $subject" >&2
+    echo "         expected <type>(<optional scope>): <imperative summary>, type one of: ${types//|/, }" >&2
+    fail=1
+    return
+  fi
+
+  if [ "${#subject}" -gt 72 ]; then
+    echo "::error::$label  subject is ${#subject} chars, limit is 72: $subject" >&2
+    fail=1; bad=1
+  fi
+
+  if printf '%s' "$subject" | grep -qE '\.$'; then
+    echo "::error::$label  subject ends with a period: $subject" >&2
+    fail=1; bad=1
+  fi
+
+  # CONTRIBUTING.md: imperative mood ("add", not "added").
+  if printf '%s' "$subject" | grep -qiE "^($types)(\([a-z0-9._/-]+\))?!?: (added|fixed|updated|removed|changed|created|bumped) "; then
+    echo "::error::$label  use imperative mood (add, not added): $subject" >&2
+    fail=1; bad=1
+  fi
+
+  if [ "$bad" -eq 0 ]; then
+    echo "ok  $label  $subject"
+  fi
+}
+
+if [ "${1:-}" = --subject ]; then
+  [ $# -eq 2 ] || { echo "usage: $0 --subject <text>" >&2; exit 2; }
+  check title "$2"
+  if [ "$fail" -ne 0 ]; then
+    echo "commits: FAILED" >&2
+    exit 1
+  fi
+  echo "commits: OK"
+  exit 0
+fi
+
+range="${1:-origin/main..HEAD}"
 
 # `mapfile < <(...)` cannot see the subshell's exit status, so an unfetched or
 # malformed range would look like "no commits" and pass the gate silently.
@@ -22,34 +69,7 @@ if [ "${#shas[@]}" -eq 0 ]; then
 fi
 
 for sha in "${shas[@]}"; do
-  subject="$(git log -1 --format=%s "$sha")"
-  short="${sha:0:8}"
-  bad=0
-
-  if ! printf '%s' "$subject" | grep -qE "^($types)(\([a-z0-9._/-]+\))?!?: .+"; then
-    echo "::error::$short  not a Conventional Commit: $subject" >&2
-    echo "         expected <type>(<optional scope>): <imperative summary>, type one of: ${types//|/, }" >&2
-    fail=1
-    continue
-  fi
-
-  if [ "${#subject}" -gt 72 ]; then
-    echo "::error::$short  subject is ${#subject} chars, limit is 72: $subject" >&2
-    fail=1; bad=1
-  fi
-
-  if printf '%s' "$subject" | grep -qE '\.$'; then
-    echo "::error::$short  subject ends with a period: $subject" >&2
-    fail=1; bad=1
-  fi
-
-  # CONTRIBUTING.md: imperative mood ("add", not "added").
-  if printf '%s' "$subject" | grep -qiE "^($types)(\([a-z0-9._/-]+\))?!?: (added|fixed|updated|removed|changed|created|bumped) "; then
-    echo "::error::$short  use imperative mood (add, not added): $subject" >&2
-    fail=1; bad=1
-  fi
-
-  [ "$bad" -eq 0 ] && echo "ok  $short  $subject"
+  check "${sha:0:8}" "$(git log -1 --format=%s "$sha")"
 done
 
 if [ "$fail" -ne 0 ]; then

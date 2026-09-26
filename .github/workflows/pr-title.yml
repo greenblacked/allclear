@@ -1,0 +1,36 @@
+name: PR title
+
+# A squash merge makes the pull request title the commit on main, and
+# release.yml reads that commit's type to pick the next version: feat is a
+# minor release, fix a patch, a `!` a major, anything else no release. A
+# title that is not a Conventional Commit would silently release nothing.
+# A separate workflow so editing the title re-runs this check alone, not CI.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  title:
+    name: pull request title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the title is a Conventional Commit
+        # The title is attacker-controlled on a fork PR, so it goes through
+        # the environment instead of being interpolated into the shell.
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: ./scripts/ci/commits.sh --subject "$TITLE"
