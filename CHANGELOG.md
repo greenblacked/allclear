@@ -6,6 +6,8 @@ Each release's section becomes its GitHub Release notes, so write entries for so
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-26
+
 ### Added
 
 - Prometheus metrics at `/metrics`: each service's state, incidents and source reachability, ready for Grafana dashboards and Alertmanager rules. `/healthz` answers liveness probes without touching the vendors.
@@ -74,7 +76,8 @@ First tagged release.
   - one triage comment per pull request that explains failed checks;
   - an hourly job that checks the live vendor endpoints and opens one issue for each broken source.
 
-[Unreleased]: https://github.com/greenblacked/status-page/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/greenblacked/status-page/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/greenblacked/status-page/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/greenblacked/status-page/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/greenblacked/status-page/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/greenblacked/status-page/compare/v0.1.0...v0.1.1
