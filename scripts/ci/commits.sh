@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Enforce the Conventional Commits rules from CONTRIBUTING.md on a commit range.
-# Run locally: ./scripts/ci/commits.sh origin/main..HEAD
+# Run locally: ./scripts/ci/commits.sh origin/dev..HEAD
+#   (origin/main..HEAD for a fix branched from main)
 #   ./scripts/ci/commits.sh --subject "feat: add a feed"
 #     Checks one subject, such as a pull request title: a squash merge makes
-#     it the commit on main, and release.yml reads its type.
+#     it the commit on dev or main, and release.yml reads its type.
 set -euo pipefail
 
 types='feat|fix|docs|refactor|test|chore|perf|ci|build|style|revert'
@@ -20,8 +21,12 @@ check() {
     return
   fi
 
-  if [ "${#subject}" -gt 72 ]; then
-    echo "::error::$label  subject is ${#subject} chars, limit is 72: $subject" >&2
+  # A squash merge appends " (#123)" to the title, which was held to 72
+  # characters on its own; the suffix does not count against the limit.
+  local measured="$subject"
+  [[ "$measured" =~ ^(.*)\ \(#[0-9]+\)$ ]] && measured="${BASH_REMATCH[1]}"
+  if [ "${#measured}" -gt 72 ]; then
+    echo "::error::$label  subject is ${#measured} chars, limit is 72: $subject" >&2
     fail=1; bad=1
   fi
 
@@ -52,7 +57,7 @@ if [ "${1:-}" = --subject ]; then
   exit 0
 fi
 
-range="${1:-origin/main..HEAD}"
+range="${1:-origin/dev..HEAD}"
 
 # `mapfile < <(...)` cannot see the subshell's exit status, so an unfetched or
 # malformed range would look like "no commits" and pass the gate silently.

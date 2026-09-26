@@ -2,7 +2,7 @@
 
 | Workflow | Trigger | What it guards |
 | --- | --- | --- |
-| [`ci.yml`](ci.yml) | push to `main` or `dev`, PRs into either, manual | Typecheck, tests, build and SSR smoke on the Node version pinned in `.nvmrc` and on Node 24; repository hygiene, documentation links, shell scripts, commit messages, branch name, workflow syntax |
+| [`ci.yml`](ci.yml) | push to `main` or `dev` (not the commits `release.yml` pushes, which start no workflow), PRs into either, manual | Typecheck, tests, build and SSR smoke on the Node version pinned in `.nvmrc` and on Node 24; repository hygiene, documentation links, shell scripts, commit messages, branch name, workflow syntax |
 | [`codeql.yml`](codeql.yml) | push to `main` or `dev`, PRs into either, weekly, manual | Static security and quality analysis of the TypeScript sources |
 | [`dependency-review.yml`](dependency-review.yml) | PRs into `main` or `dev` | Blocks high or critical vulnerabilities in dependency changes. Warns, and does not fail, when Dependency graph is off |
 | [`ci-triage.yml`](ci-triage.yml) | completion of CI, CodeQL or Dependency review on a PR | One self-updating comment per PR naming the failed job, the failed step and its likely cause, plus a `ci-failed` label. Reads the API only and never runs PR code. Active once on `main` |
@@ -18,7 +18,7 @@ Every check in `ci.yml` has a local equivalent:
 npm ci && npm run typecheck && npm test && npm run build
 ./scripts/ci/hygiene.sh  # line endings, trailing whitespace, final newline, no `any`, no raw hex
 ./scripts/ci/links.sh    # relative links in the Markdown docs
-./scripts/ci/commits.sh origin/main..HEAD
+./scripts/ci/commits.sh origin/dev..HEAD   # origin/main..HEAD for a fix branched from main
 ./scripts/ci/commits.sh --subject "feat: add a feed"   # a PR title, as pr-title.yml checks it
 ./scripts/ci/branch.sh "$(git branch --show-current)"   # the branch name, as CI checks it
 ./scripts/release/next.sh level "v$(node -p "require('./package.json').version")..origin/dev"   # the bump merging dev into main would release
