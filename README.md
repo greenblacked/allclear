@@ -312,7 +312,7 @@ The repository checks need no install, and CI runs the same commands:
 ```bash
 ./scripts/ci/hygiene.sh                   # line endings, whitespace, no `any`, no raw hex in JSX
 ./scripts/ci/links.sh                     # relative links in the Markdown docs
-./scripts/ci/commits.sh origin/main..HEAD # Conventional Commits
+./scripts/ci/commits.sh origin/dev..HEAD  # Conventional Commits
 ./scripts/ci/release-notes.sh             # the CHANGELOG.md section the next release publishes
 node --experimental-strip-types scripts/ci/source-health.ts   # the one check that calls real vendors
 ```
@@ -330,7 +330,7 @@ docker compose run --rm security       # ci-security: trivy (HIGH/CRITICAL) and 
 
 Every pull request runs CI on the pinned Node and on Node 24, plus CodeQL and dependency review. A triage bot explains failed checks in one PR comment, and the hourly source-health job watches the real endpoints. [.github/workflows/README.md](.github/workflows/README.md) covers each workflow.
 
-**Releases:** every merged pull request with a `feat`, `fix` or breaking change is released on its own. CI picks the version from the commit type, commits the bump, tags it `vX.Y.Z` and publishes a GitHub Release with notes taken from [CHANGELOG.md](CHANGELOG.md). [CONTRIBUTING.md](CONTRIBUTING.md#releases) has the details.
+**Releases:** pull requests merge into `dev`, which never releases. Merging `dev` into `main` with a merge commit releases everything it brings: CI picks the version from the commit types, commits the bump, tags it `vX.Y.Z`, publishes a GitHub Release with notes taken from [CHANGELOG.md](CHANGELOG.md), and merges `main` back into `dev`. [CONTRIBUTING.md](CONTRIBUTING.md#releases) has the details.
 
 **Adding a service:** add a catalog entry in `src/lib/status/catalog.ts` and a collector in `src/lib/status/sources.server.ts`, read only an official machine-readable source, map it onto the five states, and add it to [What it watches](#what-it-watches) in the same commit. [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-service) has the full checklist.
 

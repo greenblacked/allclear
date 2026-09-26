@@ -40,7 +40,16 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`.
 
 ## Branches
 
-Branch from `main` as `<prefix>/<short-kebab-description>`:
+Two branches live on:
+
+| Branch | Holds | Merges in | Releases |
+| --- | --- | --- | --- |
+| `dev` | The next release, as it is built | Pull requests from your branches, squash-merged | Never |
+| `main` | What is released | `dev`, in a merge commit; urgent `fix/` branches | Every merge with a `feat`, `fix` or breaking change |
+
+Branch from `dev`, and open the pull request into `dev`. Only a fix that cannot wait for the next release branches from `main` and goes straight into `main`.
+
+Name the branch `<prefix>/<short-kebab-description>`:
 
 | Prefix | Use for | Example |
 | --- | --- | --- |
@@ -56,7 +65,7 @@ Branch from `main` as `<prefix>/<short-kebab-description>`:
 - **The prefix is not the commit type.** The pull request title is still a [Conventional Commit](#commits), and it picks the [release](#releases): an `fb/` branch has a `feat:` title.
 - **Tooling names its own branches.** Dependabot opens `dependabot/…`, and [`scripts/release/bump.sh`](scripts/release/bump.sh) opens `release/vX.Y.Z`. Don't create either by hand.
 
-[`pr-title.yml`](.github/workflows/pr-title.yml) fails a pull request whose branch breaks these rules. Check a name before pushing:
+The **branch name** job in [CI](.github/workflows/ci.yml) fails a pull request whose branch breaks these rules. Check a name before pushing:
 
 ```bash
 ./scripts/ci/branch.sh "$(git branch --show-current)"
@@ -71,11 +80,11 @@ Branch from `main` as `<prefix>/<short-kebab-description>`:
 
 Rules:
 
-- Branch from an up-to-date `main`, and open one pull request per branch.
-- Bring `main` in with a merge, not a rebase, once the branch is pushed. Others may have it checked out (see [docs/git-and-readme.md](docs/git-and-readme.md#authorship)).
+- Branch from an up-to-date `dev` (or `main`, for an urgent fix), and open one pull request per branch.
+- Bring the base branch (`dev`, or `main` for an urgent fix) in with a merge, not a rebase, once the branch is pushed. Others may have it checked out (see [docs/git-and-readme.md](docs/git-and-readme.md#authorship)).
 - Keep the name when the work grows: a pull request cannot move to another branch, so renaming one means opening a new pull request.
 - Delete the branch once it is merged.
-- `main` takes changes only through pull requests, apart from the release commit CI pushes.
+- `main` and `dev` take changes only through pull requests, apart from what CI pushes: the release commit on `main`, and `main` merged back into `dev` after each release.
 
 ## Pull requests
 
@@ -86,9 +95,17 @@ Rules:
 
 ## Releases
 
-Status Bar uses [Semantic Versioning](https://semver.org/), and every merged pull request with a feature or a fix is its own release, with a `vX.Y.Z` tag and a GitHub Release. Before 1.0, a minor version adds services, features or health rules, and a patch fixes behavior without changing them.
+Status Bar uses [Semantic Versioning](https://semver.org/). A version, its `vX.Y.Z` tag and its GitHub Release are made only when work reaches `main`. Before 1.0, a minor version adds services, features or health rules, and a patch fixes behavior without changing them.
 
-Every pull request with a user-visible change adds its lines under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md). Its title is a [Conventional Commit](#commits), because a squash merge makes the title the commit on `main`, and that commit's type picks the version:
+Pull requests merge into `dev`, which never releases, so several of them can go out as one version. Every pull request with a user-visible change adds its lines under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md). Its title is a [Conventional Commit](#commits), because a squash merge makes the title the commit on `dev`, and that commit's type counts toward the next version.
+
+To release, open a pull request from `dev` into `main` and merge it with **Create a merge commit**, never squash. A merge commit keeps every commit from `dev`, so the release sees each type and changelog line. A squash would leave only the release pull request's title, and a `chore:` title would release nothing. [`scripts/release/next.sh`](scripts/release/next.sh) shows what the merge would release:
+
+```bash
+git fetch origin && ./scripts/release/next.sh level "v$(git show origin/main:package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")..origin/dev"
+```
+
+The largest type among the commits since the last tag picks the version:
 
 | Commit type on `main` | Release |
 | --- | --- |
@@ -97,7 +114,7 @@ Every pull request with a user-visible change adds its lines under `## [Unreleas
 | `fix`, `perf`, `revert` | patch |
 | `docs`, `ci`, `build`, `chore`, `refactor`, `test`, `style` | none |
 
-When the merge lands, [`release.yml`](.github/workflows/release.yml):
+When a merge lands on `main`, [`release.yml`](.github/workflows/release.yml):
 
 1. Reads every commit since the last tag and takes the largest bump ([`scripts/release/next.sh`](scripts/release/next.sh)). No feature, fix or breaking change means no release.
 2. Checks the release:
@@ -106,6 +123,16 @@ When the merge lands, [`release.yml`](.github/workflows/release.yml):
 3. Commits `chore(release): X.Y.Z` to `main`, authored by the account that merged. The commit updates `package.json`, `package-lock.json` and the changelog, and turns `## [Unreleased]` into the dated `## [X.Y.Z]` section. If the pull request added nothing under Unreleased, the section is written from the merged commits' subjects instead.
 4. Tags that commit `vX.Y.Z`.
 5. Publishes the GitHub Release with that section as its notes.
+6. Merges `main` back into `dev`, released or not, so `dev` carries the release commit and any fix merged into `main` directly. A release on `main` while `dev` has lines under Unreleased (an urgent fix, usually) conflicts on `CHANGELOG.md`. The job resolves that case itself: it keeps `main`'s released section and puts `dev`'s lines back under Unreleased ([`scripts/release/merge-changelog.sh`](scripts/release/merge-changelog.sh)). Any other conflict fails the job, and you resolve it on a branch from `dev`:
+
+   ```bash
+   git fetch origin
+   git switch -c chore/sync-main origin/dev
+   git merge origin/main        # resolve, then git commit
+   git push -u origin chore/sync-main
+   ```
+
+   Open the pull request into `dev` and merge it with **Create a merge commit**, so `dev` keeps `main`'s history and the next sync is clean. Never resolve it on a pull request from `main` into `dev`: GitHub commits the resolution to `main`, which releases the unreleased work on `dev`. The branch name check rejects `main` as a head branch for that reason.
 
 If a check fails, nothing is committed, tagged or published. When merges land close together, one run releases them together: GitHub keeps only the newest waiting run, and each run releases everything since the last tag. [`pr-title.yml`](.github/workflows/pr-title.yml) fails a pull request whose title is not a Conventional Commit, since such a merge would release nothing.
 
@@ -121,7 +148,7 @@ Other ways in, with the same checks:
 
 The bump commit and the tag are pushed with the workflow's `GITHUB_TOKEN`, so they start no other workflow and CI does not run on the bump commit itself. The verify job has already checked the same code.
 
-If `main` later gets a ruleset that requires pull requests or status checks, the workflow's direct push to `main` is rejected unless GitHub Actions is a bypass actor. Until that is set up, release with `bump.sh` and a pull request.
+If `main` or `dev` later gets a ruleset that requires pull requests or status checks, the workflow's direct pushes to it are rejected unless GitHub Actions is a bypass actor. Until that is set up, release with `bump.sh` and a pull request, and merge `main` into `dev` with a pull request.
 
 Never move or reuse a tag that has a published release; release a new patch version instead.
 

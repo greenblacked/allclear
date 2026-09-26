@@ -1,7 +1,9 @@
 name: Release
 
 # Publishes a GitHub Release whose notes are that version's CHANGELOG.md
-# section, and creates its vX.Y.Z tag. Ways in:
+# section, and creates its vX.Y.Z tag. Only main is released: pull requests
+# merge into dev, which never releases, and dev reaches main in a merge
+# commit (CONTRIBUTING.md#releases). Ways in:
 #   - Merging a pull request into main. The Conventional Commits merged since
 #     the last release pick the next version (scripts/release/next.sh): a
 #     breaking change is major, feat minor, fix, perf or revert patch, and
@@ -18,7 +20,9 @@ name: Release
 #   - Pushing a vX.Y.Z tag by hand.
 # The release has to be on main, have a changelog section and pass the same
 # checks as CI. If any check fails, nothing is committed, tagged or
-# published. CONTRIBUTING.md#releases has the details.
+# published. After every run for main, released or not, main is merged back
+# into dev, so dev carries the release commit and any fix merged into main
+# directly. CONTRIBUTING.md#releases has the details.
 
 on:
   push:
@@ -277,3 +281,74 @@ jobs:
             # with GITHUB_TOKEN starts this workflow again.
             gh release create "$TAG" --target "$target" --title "Status Bar $TAG" --notes-file "$notes" --latest="$latest"
           fi
+
+  sync-dev:
+    name: merge main into dev
+    needs: [plan, verify, publish]
+    # After every push to main or bump run that did not fail, released or not.
+    # A backfill or a tag pushed by hand leaves main as it was.
+    if: >-
+      always()
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
+      && github.ref_type == 'branch'
+      && needs.plan.outputs.mode != 'backfill'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Merge main into dev
+        env:
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+        run: |
+          if ! git ls-remote --exit-code --heads origin dev >/dev/null; then
+            echo "::notice::no dev branch; nothing to sync"
+            exit 0
+          fi
+          git config user.name "$ACTOR"
+          git config user.email "$ACTOR_ID+$ACTOR@users.noreply.github.com"
+          # main's copy: dev's may predate it.
+          merge_changelog="$RUNNER_TEMP/merge-changelog.sh"
+          cp scripts/release/merge-changelog.sh "$merge_changelog"
+
+          # A pull request merged into dev meanwhile rejects the push; fetch
+          # and merge again rather than fail the release run.
+          for attempt in 1 2 3; do
+            git fetch --quiet origin dev
+            if git merge-base --is-ancestor origin/main origin/dev; then
+              echo "::notice::dev already has everything on main"
+              exit 0
+            fi
+            git checkout --quiet -B dev origin/dev
+            # A plain merge, never a rebase or force-push: dev is shared.
+            if ! git merge --no-edit -m "Merge branch 'main' into dev" origin/main; then
+              # A release on main while dev has Unreleased lines conflicts on
+              # CHANGELOG.md alone. merge-changelog.sh resolves exactly that
+              # case and refuses anything else.
+              if [ "$(git diff --name-only --diff-filter=U)" = CHANGELOG.md ] &&
+                "$merge_changelog" <(git show :1:CHANGELOG.md) <(git show :2:CHANGELOG.md) <(git show :3:CHANGELOG.md) >"$RUNNER_TEMP/CHANGELOG.md"; then
+                cp "$RUNNER_TEMP/CHANGELOG.md" CHANGELOG.md
+                git add CHANGELOG.md
+                git commit --quiet --no-edit
+                echo "::notice::kept main's release in CHANGELOG.md and dev's lines under Unreleased"
+              else
+                git merge --abort
+                echo "::error::main and dev conflict. Branch from dev (git switch -c chore/sync-main origin/dev), run git merge origin/main, resolve, push, and merge a pull request into dev with a merge commit. Do not resolve it on a pull request from main: that commits dev's work to main and releases it."
+                exit 1
+              fi
+            fi
+            if git push origin HEAD:refs/heads/dev; then
+              exit 0
+            fi
+            echo "::warning::dev moved during the merge (attempt $attempt); trying again"
+            git checkout --quiet --detach origin/main
+          done
+          echo "::error::dev kept moving; re-run this job"
+          exit 1
