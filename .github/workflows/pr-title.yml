@@ -5,7 +5,6 @@ name: PR title
 # minor release, fix a patch, a `!` a major, anything else no release. A
 # title that is not a Conventional Commit would silently release nothing.
 # A separate workflow so editing the title re-runs this check alone, not CI.
-# It also checks the branch name against CONTRIBUTING.md#branches.
 
 on:
   pull_request:
@@ -35,18 +34,3 @@ jobs:
         env:
           TITLE: ${{ github.event.pull_request.title }}
         run: ./scripts/ci/commits.sh --subject "$TITLE"
-
-  branch:
-    name: branch name
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Check the branch follows the naming convention
-        # A fork PR's branch name is attacker-controlled too.
-        env:
-          BRANCH: ${{ github.head_ref }}
-        run: ./scripts/ci/branch.sh "$BRANCH"

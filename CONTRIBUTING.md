@@ -65,7 +65,7 @@ Name the branch `<prefix>/<short-kebab-description>`:
 - **The prefix is not the commit type.** The pull request title is still a [Conventional Commit](#commits), and it picks the [release](#releases): an `fb/` branch has a `feat:` title.
 - **Tooling names its own branches.** Dependabot opens `dependabot/…`, and [`scripts/release/bump.sh`](scripts/release/bump.sh) opens `release/vX.Y.Z`. Don't create either by hand.
 
-[`pr-title.yml`](.github/workflows/pr-title.yml) fails a pull request whose branch breaks these rules. Check a name before pushing:
+The **branch name** job in [CI](.github/workflows/ci.yml) fails a pull request whose branch breaks these rules. Check a name before pushing:
 
 ```bash
 ./scripts/ci/branch.sh "$(git branch --show-current)"

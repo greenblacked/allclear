@@ -127,6 +127,22 @@ jobs:
           git fetch --no-tags origin "$BASE_REF"
           ./scripts/ci/commits.sh "origin/$BASE_REF..HEAD"
 
+  branch:
+    name: branch name
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the branch naming convention
+        # CONTRIBUTING.md#branches: <prefix>/<short-kebab-description>. The
+        # head branch name is attacker-controlled on a fork PR, so it goes
+        # through the environment instead of being interpolated.
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: ./scripts/ci/branch.sh "$BRANCH"
+
   workflows:
     name: workflow lint
     runs-on: ubuntu-latest
