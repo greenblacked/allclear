@@ -9,6 +9,7 @@ Each release's section becomes its GitHub Release notes, so write entries for so
 ### Added
 
 - Prometheus metrics at `/metrics`: each service's state, incidents and source reachability, ready for Grafana dashboards and Alertmanager rules. `/healthz` answers liveness probes without touching the vendors.
+- Star the services you care about: starred services sort first, and the **Starred** filter shows only them. Stars are kept in this browser.
 - Search and filters are kept in the page address, so a filtered board can be bookmarked or pasted into a chat, such as `/?category=cloud&issues=true`.
 
 ## [0.3.0] - 2026-09-25

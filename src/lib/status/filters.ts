@@ -1,24 +1,26 @@
 import { CATEGORIES } from "./catalog.ts";
-import type { CategoryId, ServiceSnapshot } from "./types.ts";
+import type { CategoryId, ServiceId, ServiceSnapshot } from "./types.ts";
 
 /** What the board's search box and filter buttons are set to. */
 export type BoardFilters = {
   query: string;
   category: "all" | CategoryId;
   issuesOnly: boolean;
+  starredOnly: boolean;
 };
 
-export const DEFAULT_FILTERS: BoardFilters = { query: "", category: "all", issuesOnly: false };
+export const DEFAULT_FILTERS: BoardFilters = { query: "", category: "all", issuesOnly: false, starredOnly: false };
 
 /**
  * The same filters as URL search params, so a filtered board can be
- * bookmarked or pasted into a chat: `/?q=gcp&category=cloud&issues=true`.
+ * bookmarked or pasted into a chat: `/?q=gcp&category=cloud&issues=true&starred=true`.
  * A filter at its default is left out, which keeps the plain board at `/`.
  */
 export type BoardSearch = {
   q?: string;
   category?: CategoryId;
   issues?: true;
+  starred?: true;
 };
 
 const CATEGORY_IDS = new Set<string>(CATEGORIES.map((category) => category.id));
@@ -38,6 +40,7 @@ export function parseBoardSearch(raw: Record<string, unknown>): BoardSearch {
   if (typeof q === "string" && q.trim()) search.q = q.slice(0, 100);
   if (isCategory(raw.category)) search.category = raw.category;
   if (raw.issues === true || raw.issues === "true") search.issues = true;
+  if (raw.starred === true || raw.starred === "true") search.starred = true;
   return search;
 }
 
@@ -46,6 +49,7 @@ export function filtersFromSearch(search: BoardSearch): BoardFilters {
     query: search.q ?? "",
     category: search.category ?? "all",
     issuesOnly: search.issues === true,
+    starredOnly: search.starred === true,
   };
 }
 
@@ -54,12 +58,19 @@ export function searchFromFilters(filters: BoardFilters): BoardSearch {
   if (filters.query.trim()) search.q = filters.query;
   if (filters.category !== "all") search.category = filters.category;
   if (filters.issuesOnly) search.issues = true;
+  if (filters.starredOnly) search.starred = true;
   return search;
 }
 
-export function matchesFilters(service: ServiceSnapshot, filters: BoardFilters): boolean {
+/** `starred` is this browser's stars; a shared `starred=true` link shows the opener's own. */
+export function matchesFilters(
+  service: ServiceSnapshot,
+  filters: BoardFilters,
+  starred: ReadonlySet<ServiceId> = new Set(),
+): boolean {
   if (filters.category !== "all" && service.category !== filters.category) return false;
   if (filters.issuesOnly && service.health === "operational") return false;
+  if (filters.starredOnly && !starred.has(service.id)) return false;
   const needle = filters.query.trim().toLowerCase();
   if (!needle) return true;
   const hay = `${service.name} ${service.shortName} ${service.summary} ${service.category}`.toLowerCase();

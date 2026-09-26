@@ -27,19 +27,20 @@ function service(id: ServiceId, health: Health, category: ServiceSnapshot["categ
 
 describe("parseBoardSearch", () => {
   it("keeps valid params", () => {
-    expect(parseBoardSearch({ q: "gcp", category: "cloud", issues: true })).toEqual({
+    expect(parseBoardSearch({ q: "gcp", category: "cloud", issues: true, starred: true })).toEqual({
       q: "gcp",
       category: "cloud",
       issues: true,
+      starred: true,
     });
   });
 
-  it("accepts issues as a string and a numeric query as text", () => {
-    expect(parseBoardSearch({ q: 730, issues: "true" })).toEqual({ q: "730", issues: true });
+  it("accepts flags as strings and a numeric query as text", () => {
+    expect(parseBoardSearch({ q: 730, issues: "true", starred: "true" })).toEqual({ q: "730", issues: true, starred: true });
   });
 
   it("drops unknown categories, blank queries, false flags and other params", () => {
-    expect(parseBoardSearch({ q: "  ", category: "weather", issues: "false", utm_source: "slack" })).toEqual({});
+    expect(parseBoardSearch({ q: "  ", category: "weather", issues: "false", starred: 0, utm_source: "slack" })).toEqual({});
     expect(parseBoardSearch({ q: ["a"], category: 3, issues: 1 })).toEqual({});
   });
 
@@ -52,7 +53,7 @@ describe("filters and search params", () => {
   it("round-trip, leaving defaults out of the URL", () => {
     expect(searchFromFilters(DEFAULT_FILTERS)).toEqual({});
     expect(filtersFromSearch({})).toEqual(DEFAULT_FILTERS);
-    const filters = { query: "claude", category: "ai" as const, issuesOnly: true };
+    const filters = { query: "claude", category: "ai" as const, issuesOnly: true, starredOnly: true };
     expect(filtersFromSearch(searchFromFilters(filters))).toEqual(filters);
   });
 
@@ -76,5 +77,12 @@ describe("matchesFilters", () => {
     expect(matchesFilters(gcp, { ...DEFAULT_FILTERS, issuesOnly: true })).toBe(true);
     expect(matchesFilters(gcp, { ...DEFAULT_FILTERS, query: "  GOOGLE " })).toBe(true);
     expect(matchesFilters(gcp, { ...DEFAULT_FILTERS, query: "steam" })).toBe(false);
+  });
+
+  it("keeps only starred services when asked", () => {
+    const starredOnly = { ...DEFAULT_FILTERS, starredOnly: true };
+    expect(matchesFilters(gcp, starredOnly, new Set(["gcp"]))).toBe(true);
+    expect(matchesFilters(steam, starredOnly, new Set(["gcp"]))).toBe(false);
+    expect(matchesFilters(gcp, starredOnly)).toBe(false);
   });
 });

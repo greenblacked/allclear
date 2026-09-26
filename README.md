@@ -121,6 +121,7 @@ Open the local URL that Vite prints. The first load reads all fourteen sources, 
 **On the board:**
 
 - Filter by Cloud, Gaming, Platforms, AI or Updates, search by name, or switch on **Issues only**
+- Star the services you care about: they sort first, and **Starred** shows only them
 - Share a filtered view: the search and filters live in the address, so `/?q=aws&issues=true` opens the board already filtered
 - Watch the countdown: the board pulls a new snapshot every two minutes
 - Read the **Board log** to see what changed between two-minute slots
@@ -270,7 +271,7 @@ The status page's JSON API sits behind a Cloudflare challenge, so the official R
 
 <br>
 
-The server holds only the latest snapshot, in memory, and reuses it for up to 45 seconds. Nothing is written to disk or a database. The Board log lives in your browser's local storage and keeps the last two hours, next to your alerts on/off choice. Private windows or blocked site data leave it empty.
+The server holds only the latest snapshot, in memory, and reuses it for up to 45 seconds. Nothing is written to disk or a database. The Board log lives in your browser's local storage and keeps the last two hours, next to your alerts on/off choice and your starred services. Private windows or blocked site data leave it empty.
 
 </details>
 

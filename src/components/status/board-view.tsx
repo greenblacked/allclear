@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, BellOff, BellRing, RefreshCw, Search } from "lucide-react";
+import { Bell, BellOff, BellRing, RefreshCw, Search, Star } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useCountUp, useSpotlight, withViewTransition } from "@/components/status/effects";
 import { HealthDot } from "@/components/status/health-dot";
@@ -7,6 +7,7 @@ import { LiveBar } from "@/components/status/live-bar";
 import { ServiceCard, ServiceTile } from "@/components/status/service-card";
 import { UpdateFeed } from "@/components/status/update-feed";
 import { type AlertsState, useBoardAlerts } from "@/components/status/use-alerts";
+import { useStarred } from "@/components/status/use-starred";
 import { useNow } from "@/components/status/use-now";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,7 @@ import {
   type PulseStore,
 } from "@/lib/status/pulse";
 import { CACHE_TTL_MS, lastPulseAt, LIVE_REFETCH_MS } from "@/lib/status/schedule";
+import { starredFirst } from "@/lib/status/starred";
 import type { BoardSnapshot, CategoryId, ServiceSnapshot } from "@/lib/status/types";
 import { cn } from "@/lib/utils";
 
@@ -47,7 +49,7 @@ export function BoardView({
   // Local state drives the board; the URL follows it. Reading the filters
   // back from the URL would make every keystroke wait on a router update.
   const [filters, setFilters] = useState(initialFilters);
-  const { query, category, issuesOnly } = filters;
+  const { query, category, issuesOnly, starredOnly } = filters;
   const updateFilters = (patch: Partial<BoardFilters>) => setFilters((current) => ({ ...current, ...patch }));
   const [store, setStore] = useState<PulseStore | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -78,6 +80,7 @@ export function BoardView({
   const board = boardQuery.data ?? initial;
   const headline = boardHeadline(board);
   const alerts = useBoardAlerts(board);
+  const { starred, ready: starsReady, toggle: toggleStar } = useStarred();
   const pulseStore = store ?? emptyPulseStore();
   const changedIds = new Set(
     (pulseStore.pulses[0]?.opening ? [] : pulseStore.pulses[0]?.changes ?? []).map(
@@ -110,11 +113,17 @@ export function BoardView({
   }, [board]);
 
   const visible = useMemo(
-    () => board.services.filter((service) => matchesFilters(service, filters)),
-    [board.services, filters],
+    () =>
+      starredFirst(
+        board.services.filter((service) => matchesFilters(service, filters, starred)),
+        starred,
+      ),
+    [board.services, filters, starred],
   );
 
   const issueCount = board.services.length - board.counts.operational;
+  // Starring moves a card, so it glides there like a refresh does.
+  const onToggleStar = (id: ServiceSnapshot["id"]) => withViewTransition(() => toggleStar(id));
   const groups = groupServices(visible);
   const categoryCount = (id: "all" | CategoryId) =>
     id === "all" ? board.services.length : board.services.filter((service) => service.category === id).length;
@@ -211,6 +220,17 @@ export function BoardView({
                 Issues only
                 <span className="font-mono text-[11px] tabular-nums opacity-60">{issueCount}</span>
               </Button>
+              <Button
+                variant={starredOnly ? "default" : "outline"}
+                size="sm"
+                className="shrink-0"
+                aria-pressed={starredOnly}
+                onClick={() => updateFilters({ starredOnly: !starredOnly })}
+              >
+                <Star className={cn("size-3.5", starredOnly && "fill-current")} />
+                Starred
+                <span className="font-mono text-[11px] tabular-nums opacity-60">{starred.size}</span>
+              </Button>
             </div>
           </div>
         </header>
@@ -231,7 +251,14 @@ export function BoardView({
                   ))}
                 </div>
               ) : visible.length === 0 ? (
-                <p className="rounded-3xl glass px-5 py-10 text-center text-muted">No services match that filter.</p>
+                // Stars load after hydration; until then an empty Starred view proves nothing.
+                starredOnly && !starsReady ? null : (
+                  <p className="rounded-3xl glass px-5 py-10 text-center text-muted">
+                    {starredOnly && starred.size === 0
+                      ? "No starred services yet. Star a card to keep it here and at the top of the board."
+                      : "No services match that filter."}
+                  </p>
+                )
               ) : (
                 <>
                   <ServiceSection id="attention" title="Needs attention" services={groups.attention}>
@@ -242,6 +269,8 @@ export function BoardView({
                           service={service}
                           index={index}
                           emphasized={changedIds.has(service.id)}
+                          starred={starred.has(service.id)}
+                          onToggleStar={onToggleStar}
                         />
                       ))}
                     </div>
@@ -254,6 +283,8 @@ export function BoardView({
                           service={service}
                           index={index}
                           emphasized={changedIds.has(service.id)}
+                          starred={starred.has(service.id)}
+                          onToggleStar={onToggleStar}
                         />
                       ))}
                     </div>
@@ -266,6 +297,8 @@ export function BoardView({
                           service={service}
                           index={index}
                           emphasized={changedIds.has(service.id)}
+                          starred={starred.has(service.id)}
+                          onToggleStar={onToggleStar}
                         />
                       ))}
                     </div>
