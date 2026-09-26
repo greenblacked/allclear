@@ -21,7 +21,7 @@ describe("branch.sh", () => {
     expect(check(name).ok).toBe(true);
   });
 
-  it.each(["dev", "main", "dependabot/npm_and_yarn/vite-8.4.0", "release/v0.4.0"])(
+  it.each(["dev", "dependabot/npm_and_yarn/vite-8.4.0", "release/v0.4.0"])(
     "accepts the long-lived or tool-named %s",
     (name) => {
       expect(check(name).ok).toBe(true);
@@ -40,6 +40,7 @@ describe("branch.sh", () => {
     ["fb/nested/path", "a second slash"],
     ["release/next", "a release branch without a version"],
     ["develop", "a long-lived name the repository does not use"],
+    ["main", "main as a head branch, which would commit dev's work to main"],
   ])("rejects %s (%s)", (name) => {
     const result = check(name);
     expect(result.ok).toBe(false);

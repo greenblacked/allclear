@@ -8,9 +8,10 @@ name="${1:?usage: branch.sh <branch-name>}"
 prefixes='fb|fix|chore|docs|ci'
 max=50
 
-# The long-lived branches: a pull request from dev into main is a release,
-# and one from main into dev resolves a conflict the release sync hit.
-if [[ "$name" == dev || "$name" == main ]]; then
+# A pull request from dev into main is a release. main is never a head
+# branch: resolving a conflict on a main-to-dev pull request commits dev's
+# work to main and releases it (CONTRIBUTING.md#releases has the safe way).
+if [[ "$name" == dev ]]; then
   echo "ok  branch  $name (long-lived)"
   exit 0
 fi

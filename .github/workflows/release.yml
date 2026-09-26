@@ -312,19 +312,43 @@ jobs:
             echo "::notice::no dev branch; nothing to sync"
             exit 0
           fi
-          git fetch --quiet origin dev
-          if git merge-base --is-ancestor origin/main origin/dev; then
-            echo "::notice::dev already has everything on main"
-            exit 0
-          fi
           git config user.name "$ACTOR"
           git config user.email "$ACTOR_ID+$ACTOR@users.noreply.github.com"
-          git checkout --quiet -B dev origin/dev
-          # A plain merge, never a rebase or force-push: dev is shared.
-          if ! git merge --no-edit -m "Merge branch 'main' into dev" origin/main; then
-            git merge --abort
-            echo "::error::main and dev conflict. Open a pull request from main into dev, resolve the conflict there, and merge it with a merge commit."
-            exit 1
-          fi
-          # Fails without force if dev moved meanwhile; the next run retries.
-          git push origin HEAD:refs/heads/dev
+          # main's copy: dev's may predate it.
+          merge_changelog="$RUNNER_TEMP/merge-changelog.sh"
+          cp scripts/release/merge-changelog.sh "$merge_changelog"
+
+          # A pull request merged into dev meanwhile rejects the push; fetch
+          # and merge again rather than fail the release run.
+          for attempt in 1 2 3; do
+            git fetch --quiet origin dev
+            if git merge-base --is-ancestor origin/main origin/dev; then
+              echo "::notice::dev already has everything on main"
+              exit 0
+            fi
+            git checkout --quiet -B dev origin/dev
+            # A plain merge, never a rebase or force-push: dev is shared.
+            if ! git merge --no-edit -m "Merge branch 'main' into dev" origin/main; then
+              # A release on main while dev has Unreleased lines conflicts on
+              # CHANGELOG.md alone. merge-changelog.sh resolves exactly that
+              # case and refuses anything else.
+              if [ "$(git diff --name-only --diff-filter=U)" = CHANGELOG.md ] &&
+                "$merge_changelog" <(git show :1:CHANGELOG.md) <(git show :2:CHANGELOG.md) <(git show :3:CHANGELOG.md) >"$RUNNER_TEMP/CHANGELOG.md"; then
+                cp "$RUNNER_TEMP/CHANGELOG.md" CHANGELOG.md
+                git add CHANGELOG.md
+                git commit --quiet --no-edit
+                echo "::notice::kept main's release in CHANGELOG.md and dev's lines under Unreleased"
+              else
+                git merge --abort
+                echo "::error::main and dev conflict. Branch from dev (git switch -c chore/sync-main origin/dev), run git merge origin/main, resolve, push, and merge a pull request into dev with a merge commit. Do not resolve it on a pull request from main: that commits dev's work to main and releases it."
+                exit 1
+              fi
+            fi
+            if git push origin HEAD:refs/heads/dev; then
+              exit 0
+            fi
+            echo "::warning::dev moved during the merge (attempt $attempt); trying again"
+            git checkout --quiet --detach origin/main
+          done
+          echo "::error::dev kept moving; re-run this job"
+          exit 1

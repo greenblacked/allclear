@@ -81,7 +81,7 @@ The **branch name** job in [CI](.github/workflows/ci.yml) fails a pull request w
 Rules:
 
 - Branch from an up-to-date `dev` (or `main`, for an urgent fix), and open one pull request per branch.
-- Bring `main` in with a merge, not a rebase, once the branch is pushed. Others may have it checked out (see [docs/git-and-readme.md](docs/git-and-readme.md#authorship)).
+- Bring the base branch (`dev`, or `main` for an urgent fix) in with a merge, not a rebase, once the branch is pushed. Others may have it checked out (see [docs/git-and-readme.md](docs/git-and-readme.md#authorship)).
 - Keep the name when the work grows: a pull request cannot move to another branch, so renaming one means opening a new pull request.
 - Delete the branch once it is merged.
 - `main` and `dev` take changes only through pull requests, apart from what CI pushes: the release commit on `main`, and `main` merged back into `dev` after each release.
@@ -123,7 +123,16 @@ When a merge lands on `main`, [`release.yml`](.github/workflows/release.yml):
 3. Commits `chore(release): X.Y.Z` to `main`, authored by the account that merged. The commit updates `package.json`, `package-lock.json` and the changelog, and turns `## [Unreleased]` into the dated `## [X.Y.Z]` section. If the pull request added nothing under Unreleased, the section is written from the merged commits' subjects instead.
 4. Tags that commit `vX.Y.Z`.
 5. Publishes the GitHub Release with that section as its notes.
-6. Merges `main` back into `dev`, released or not, so `dev` carries the release commit and any fix merged into `main` directly. If the two conflict, the job fails and says so. Open a pull request from `main` into `dev`, resolve the conflict there, and merge it with a merge commit.
+6. Merges `main` back into `dev`, released or not, so `dev` carries the release commit and any fix merged into `main` directly. A release on `main` while `dev` has lines under Unreleased (an urgent fix, usually) conflicts on `CHANGELOG.md`. The job resolves that case itself: it keeps `main`'s released section and puts `dev`'s lines back under Unreleased ([`scripts/release/merge-changelog.sh`](scripts/release/merge-changelog.sh)). Any other conflict fails the job, and you resolve it on a branch from `dev`:
+
+   ```bash
+   git fetch origin
+   git switch -c chore/sync-main origin/dev
+   git merge origin/main        # resolve, then git commit
+   git push -u origin chore/sync-main
+   ```
+
+   Open the pull request into `dev` and merge it with **Create a merge commit**, so `dev` keeps `main`'s history and the next sync is clean. Never resolve it on a pull request from `main` into `dev`: GitHub commits the resolution to `main`, which releases the unreleased work on `dev`. The branch name check rejects `main` as a head branch for that reason.
 
 If a check fails, nothing is committed, tagged or published. When merges land close together, one run releases them together: GitHub keeps only the newest waiting run, and each run releases everything since the last tag. [`pr-title.yml`](.github/workflows/pr-title.yml) fails a pull request whose title is not a Conventional Commit, since such a merge would release nothing.
 

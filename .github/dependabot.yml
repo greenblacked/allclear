@@ -1,7 +1,9 @@
 version: 2
 updates:
-  # Updates land on dev with the rest of the work, and reach main (and a
-  # release) with the next merge from dev.
+  # Version updates land on dev with the rest of the work, and reach main
+  # with the next merge from dev. Security updates ignore target-branch and
+  # open against the default branch, without the groups and ignores below;
+  # a merge into main reaches dev through release.yml's sync.
   - package-ecosystem: npm
     directory: /
     target-branch: dev
