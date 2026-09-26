@@ -5,8 +5,12 @@
 #     Locally: commits on a new release/vX.Y.Z branch. Merging its pull
 #     request makes release.yml tag the merge commit and publish.
 #   ./scripts/release/bump.sh --ci patch|minor|major|X.Y.Z
-#     In release.yml (Run workflow): commits on the checked-out main, which
-#     the workflow then pushes, tags and publishes.
+#     In release.yml (Run workflow, or a merge to main): commits on the
+#     checked-out main, which the workflow then pushes, tags and publishes.
+#   --fallback-notes FILE
+#     Changelog lines to release when ## [Unreleased] is empty, instead of
+#     refusing. release.yml builds them from the merged commits' subjects
+#     (scripts/release/next.sh notes).
 #
 # The commit is authored by whoever runs it, locally or by clicking Run
 # workflow, never by a bot identity (CONTRIBUTING.md#authorship).
@@ -15,11 +19,19 @@ set -euo pipefail
 die() { echo "bump: $*" >&2; exit 1; }
 
 ci=false
-if [ "${1:-}" = --ci ]; then
-  ci=true
-  shift
-fi
-[ $# -eq 1 ] || die "usage: $0 [--ci] patch|minor|major|X.Y.Z"
+fallback_notes=""
+while [ $# -gt 1 ]; do
+  case "$1" in
+    --ci) ci=true; shift ;;
+    --fallback-notes)
+      [ $# -gt 2 ] || die "--fallback-notes needs a file"
+      fallback_notes="$(realpath "$2")"
+      shift 2
+      ;;
+    *) break ;;
+  esac
+done
+[ $# -eq 1 ] || die "usage: $0 [--ci] [--fallback-notes FILE] patch|minor|major|X.Y.Z"
 cd "$(git rev-parse --show-toplevel)"
 
 [ -z "$(git status --porcelain)" ] || die "working tree is not clean"
@@ -64,6 +76,21 @@ unreleased="$(awk '
   found && /^## \[/ { exit }
   found && NF { print }
 ' CHANGELOG.md)"
+if [ -z "$unreleased" ] && [ -n "$fallback_notes" ] && [ -s "$fallback_notes" ]; then
+  # Put the fallback lines under the empty Unreleased heading, so the rest
+  # of the release reads them exactly like lines a pull request added.
+  with_notes="$(mktemp)"
+  awk -v notes="$fallback_notes" '
+    { print }
+    /^## \[Unreleased\]/ {
+      print ""
+      while ((getline line < notes) > 0) print line
+    }
+  ' CHANGELOG.md >"$with_notes"
+  cat "$with_notes" >CHANGELOG.md
+  rm -f "$with_notes"
+  unreleased="$(cat "$fallback_notes")"
+fi
 [ -n "$unreleased" ] || die "CHANGELOG.md has nothing under ## [Unreleased]"
 
 # The repository URL comes from the existing Unreleased compare link.

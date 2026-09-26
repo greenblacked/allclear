@@ -5,9 +5,12 @@
 # Run locally:
 #   ./scripts/ci/release-notes.sh 0.1.0
 #   ./scripts/ci/release-notes.sh          # the version in package.json
+# CHANGELOG=path reads another copy of the changelog, such as main's while an
+# older commit is checked out.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
+changelog="${CHANGELOG:-CHANGELOG.md}"
 
 version="${1:-$(node -p "require('./package.json').version")}"
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -22,10 +25,10 @@ notes="$(awk -v heading="## [$version]" '
   found && /^## \[/ { exit }
   found && /^\[[^]]+\]: / { next }
   found { print }
-' CHANGELOG.md | sed -e '/./,$!d')"
+' "$changelog" | sed -e '/./,$!d')"
 
 if [ -z "${notes//[[:space:]]/}" ]; then
-  echo "::error file=CHANGELOG.md::no '## [$version]' section with content" >&2
+  echo "::error file=$changelog::no '## [$version]' section with content" >&2
   exit 1
 fi
 
