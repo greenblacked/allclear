@@ -5,8 +5,10 @@ import { useCountUp, useSpotlight, withViewTransition } from "@/components/statu
 import { HealthDot } from "@/components/status/health-dot";
 import { LiveBar } from "@/components/status/live-bar";
 import { ServiceCard, ServiceTile } from "@/components/status/service-card";
+import { ShortcutsDialog } from "@/components/status/shortcuts-dialog";
 import { UpdateFeed } from "@/components/status/update-feed";
 import { type AlertsState, useBoardAlerts } from "@/components/status/use-alerts";
+import { useShortcuts } from "@/components/status/use-shortcuts";
 import { useStarred } from "@/components/status/use-starred";
 import { useNow } from "@/components/status/use-now";
 import { Button } from "@/components/ui/button";
@@ -14,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchStatusBoard, refreshStatusBoard } from "@/lib/status/board";
 import { APP_NAME, CATEGORIES } from "@/lib/status/catalog";
-import { type BoardFilters, matchesFilters } from "@/lib/status/filters";
+import { type BoardFilters, DEFAULT_FILTERS, matchesFilters } from "@/lib/status/filters";
 import { attentionBreakdown } from "@/lib/status/health";
 import { boardHeadline, documentTitle, groupServices, serviceAnchor } from "@/lib/status/layout";
 import {
@@ -55,6 +57,8 @@ export function BoardView({
   const [refreshing, setRefreshing] = useState(false);
   const manualRefreshInFlight = useRef(false);
   const mainRef = useRef<HTMLElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   useSpotlight(mainRef);
 
   const boardQuery = useQuery({
@@ -145,6 +149,38 @@ export function BoardView({
 
   const fetching = boardQuery.isFetching || refreshing;
 
+  useShortcuts((action) => {
+    switch (action.type) {
+      case "focus-search":
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      case "leave-search":
+        // First Escape clears the search, the next one leaves the field.
+        if (query && document.activeElement === searchRef.current) updateFilters({ query: "" });
+        else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        return;
+      case "refresh":
+        void handleRefresh();
+        return;
+      case "category":
+        updateFilters({ category: action.category });
+        return;
+      case "toggle-issues":
+        updateFilters({ issuesOnly: !issuesOnly });
+        return;
+      case "toggle-starred":
+        updateFilters({ starredOnly: !starredOnly });
+        return;
+      case "reset":
+        setFilters(DEFAULT_FILTERS);
+        return;
+      case "help":
+        setShortcutsOpen(true);
+        return;
+    }
+  });
+
   return (
     <div className="liquid-stage text-fg">
       <div className="liquid-content">
@@ -185,11 +221,18 @@ export function BoardView({
               <span className="sr-only">Search services</span>
               <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-subtle" />
               <Input
+                ref={searchRef}
                 value={query}
                 onChange={(event) => updateFilters({ query: event.target.value })}
                 placeholder="Search GCP, CS2 Europe, RouterOS…"
-                className="pl-10"
+                className="pl-10 sm:pr-10"
               />
+              <kbd
+                aria-hidden
+                className="pointer-events-none absolute top-1/2 right-3.5 hidden -translate-y-1/2 rounded-md glass-inset px-1.5 font-mono text-[11px] text-subtle sm:block"
+              >
+                /
+              </kbd>
             </label>
             {/* One scrolling row on phones instead of three wrapped ones. */}
             <div
@@ -331,7 +374,20 @@ export function BoardView({
               </a>
               .
             </p>
+            <p className="hidden sm:block">
+              Press{" "}
+              <kbd className="rounded-md glass-inset px-1.5 font-mono text-[11px] text-muted">?</kbd> for{" "}
+              <button
+                type="button"
+                className="underline decoration-border underline-offset-4 hover:text-fg"
+                onClick={() => setShortcutsOpen(true)}
+              >
+                keyboard shortcuts
+              </button>
+              .
+            </p>
           </footer>
+          <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
         </main>
       </div>
     </div>
