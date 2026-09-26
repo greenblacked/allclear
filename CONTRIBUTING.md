@@ -38,6 +38,29 @@ Rules:
 
 Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`.
 
+## Branches
+
+Name a branch `<type>/<summary>`:
+
+- **`<type>`** is the Conventional Commit type the pull request's title will have. The branch, the title and the [release](#releases) it produces then all say the same thing.
+- **`<summary>`** is two to five lowercase words joined by hyphens, saying what changes. Use only `a-z`, `0-9` and `-`, and keep the whole name under 50 characters.
+- **An issue number** goes first in the summary when there is one: `fix/42-aws-stale-events`.
+
+| Good | Not | Why |
+| --- | --- | --- |
+| `feat/board-metrics-stars-shortcuts` | `feature/Board_Metrics` | The type is spelled as in commits; lowercase with hyphens only |
+| `fix/42-aws-stale-events` | `fix-aws` | A slash separates the type, which Git clients group by, and the summary says what is fixed |
+| `docs/readme-integrations` | `username/readme` | Say what changes, not who changes it. The commit author already records who |
+| `ci/release-every-merge` | `claude/release-ci`, `wip-2026-09-25` | Tool names and dates say nothing about the change |
+
+Rules:
+
+- Branch from an up-to-date `main`, and open one pull request per branch.
+- Bring `main` in with a merge, not a rebase, once the branch is pushed. Others may have it checked out (see [docs/git-and-readme.md](docs/git-and-readme.md#authorship)).
+- Keep the name when the work grows: a pull request cannot move to another branch, so renaming one means opening a new pull request.
+- Delete the branch once it is merged.
+- `main` takes changes only through pull requests, apart from the release commit CI pushes. `release/vX.Y.Z` branches come from [`scripts/release/bump.sh`](scripts/release/bump.sh), not by hand.
+
 ## Pull requests
 
 - Keep the default branch green
