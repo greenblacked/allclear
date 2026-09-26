@@ -6,6 +6,10 @@ Each release's section becomes its GitHub Release notes, so write entries for so
 
 ## [Unreleased]
 
+### Added
+
+- Prometheus metrics at `/metrics`: each service's state, incidents and source reachability, ready for Grafana dashboards and Alertmanager rules. `/healthz` answers liveness probes without touching the vendors.
+
 ## [0.3.0] - 2026-09-25
 
 ### Added
